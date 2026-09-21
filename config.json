@@ -9,5 +9,12 @@
     "DP": "Ctrl+Alt+2"
   },
   "doubleClick": "DP",
-  "logFile": "logs\\monitor.log"
+  "logFile": "logs\\monitor.log",
+  "kvm": {
+    "enabled": true,
+    "sentinel": "USB\\VID_046D&PID_C33A",
+    "onLeave": "DP",
+    "onArrive": "HDMI",
+    "delayMs": 400
+  }
 }

@@ -16,6 +16,7 @@ Testado em: Windows 11, Dell Precision 3591 ligado ao monitor por HDMI, monitor 
 | Painel completo (brilho, cor, energia...)  | duplo clique em **`MonitorControl.cmd`**                             |
 | Iniciar o ícone junto com o Windows        | menu do ícone → **Iniciar com o Windows**                            |
 | Usar no outro PC                           | copie a pasta inteira pra lá e rode o `MonitorTray.vbs`              |
+| Usar em Linux                              | copie a pasta e rode `linux/install.sh` (ver [linux/README.md](linux/README.md)) |
 
 Os atalhos globais só funcionam enquanto o ícone da bandeja estiver rodando.
 
@@ -107,6 +108,41 @@ String de capabilities reportada:
 | `to-dp.cmd` / `to-hdmi.cmd` | Atalhos de um clique (chamam o script acima).                              |
 | `menu.cmd`              | Prompt interativo pra enviar qualquer valor em hex ao `0x60` (útil pra descobrir valores). |
 | `logs\monitor.log`      | Registro de tudo que foi enviado ao monitor (rotaciona em 1 MB).               |
+| `linux/`                | Versão Linux em Bash sobre o `ddcutil`, com os mesmos papéis (CLI, painel, bandeja, atalhos). Usa este mesmo `config.json`. Detalhes em `linux/README.md`. |
+
+## Seguir o KVM (um botão troca tudo)
+
+O KVM em uso (UGREEN, só botão físico) não aceita comando por software: ele aparece ao Windows como
+hubs USB genéricos (Genesys 05E3:0610 + Terminus 1A40:0101), sem interface de controle. A hotkey de
+KVMs é lida pelo próprio aparelho antes do PC, então também não dá pra simular.
+
+A solução é reagir ao KVM em vez de comandá-lo. Ao apertar o botão, o teclado e o mouse **somem**
+deste PC e o Windows emite `WM_DEVICECHANGE`. A aplicação de bandeja observa um dispositivo-sentinela
+(o teclado Logitech G413, `USB\VID_046D&PID_C33A`):
+
+- sentinela **saiu** → monitor vai para `kvm.onLeave` (DP neste notebook);
+- sentinela **voltou** → monitor vai para `kvm.onArrive` (HDMI).
+
+Liga e desliga pelo menu do ícone ("Seguir o KVM") ou por `kvm.enabled` no `config.json`.
+No outro PC, inverta `onLeave`/`onArrive`.
+
+**Tempo de reação.** Não há verificação periódica: o Windows avisa no instante em que o USB muda.
+O atraso total é a soma de:
+
+| Etapa | Tempo | Ajuste |
+|-------|-------|--------|
+| KVM desconectar o USB e o Windows perceber | ~0,5–1 s | hardware, não ajustável |
+| Espera para agrupar os eventos (`kvm.delayMs`) | 400 ms (padrão) | `config.json`; abaixo de ~200 ms pode disparar duas vezes |
+| Verificar se a sentinela ainda está presente | poucos ms | usa `cfgmgr32` (a versão com `Get-PnpDevice` levava ~2 s) |
+| Enviar o comando ao monitor | ~50 ms | enumeração sem leitura prévia (`-NoProbe`) |
+| O monitor trocar a entrada | ~1–2 s | firmware do monitor |
+
+Se quiser reagir mais rápido, reduza `delayMs`; se perceber troca dupla, aumente. A sentinela pode ser qualquer dispositivo que esteja atrás do KVM;
+descubra o prefixo com `Get-PnpDevice -PresentOnly | ? InstanceId -like 'USB\VID*'`.
+
+Limitação herdada do monitor: se o outro PC estiver desligado, o monitor vai pro DisplayPort sem
+sinal e dorme. Nesse caso, ao apertar o botão do KVM de volta, o comando HDMI é enviado mas o monitor
+não escuta; use o botão do monitor.
 
 ## Configuração (`config.json`)
 
@@ -131,7 +167,10 @@ String de capabilities reportada:
 
 - **Windows:** copie a pasta, rode `MonitorTray.vbs`, marque "Iniciar com o Windows". Troque
   `doubleClick` pra `HDMI` se aquele PC estiver no DisplayPort.
-- **Linux:** `ddcutil setvcp 60 0x06` (HDMI) ou `ddcutil setvcp 60 0x09` (DP).
+- **Linux:** pasta `linux/`: `./install.sh` confere `ddcutil`, módulo `i2c-dev` e permissões; depois
+  `./set-monitor-input.sh DP`, `./install-hotkeys.sh` (atalhos no GNOME), `./monitor-tray.sh` (bandeja)
+  e `./install.sh --kvm` (seguir o KVM via `udev`, mesmo bloco `kvm` do `config.json`).
+  Na mão: `ddcutil setvcp 60 0x06 --noverify` (HDMI) ou `ddcutil setvcp 60 0x09 --noverify` (DP).
 - **macOS:** `m1ddc set input 6` / `m1ddc set input 9`, ou o app BetterDisplay.
 
 ## Adaptar para outro monitor
@@ -164,3 +203,4 @@ String de capabilities reportada:
 
 - 2026-09-21: valores `0x06`/`0x09` descobertos por varredura; primeira versão dos scripts, painel
   completo, ícone de bandeja, módulo compartilhado, `config.json`, atalhos globais e este README.
+- 2026-09-21: versão Linux (`linux/`) em Bash sobre o `ddcutil`, reaproveitando o `config.json`.

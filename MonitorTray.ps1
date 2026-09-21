@@ -76,6 +76,9 @@ $miFull = $menu.Items.Add('Abrir controle completo...')
 $miFull.Add_Click({ Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$(Join-Path $Dir 'MonitorControl.ps1')`"" })
 $miLog = $menu.Items.Add('Abrir log')
 $miLog.Add_Click({ $f = Join-Path $Dir $cfg.logFile; if (Test-Path $f) { Start-Process notepad $f } else { Notify 'Log ainda vazio' } })
+$miKvm = $menu.Items.Add('Seguir o KVM (teclado sai -> DP, volta -> HDMI)'); $miKvm.CheckOnClick = $true
+$miKvm.Checked = [bool]($cfg.kvm -and $cfg.kvm.enabled)
+$miKvm.Add_Click({ $script:KvmOn = $this.Checked; Write-DdcLog "seguir KVM: $($script:KvmOn)"; if ($script:KvmOn) { $script:KvmPresent = Test-DevicePresent $cfg.kvm.sentinel } })
 $miStart = $menu.Items.Add('Iniciar com o Windows'); $miStart.CheckOnClick = $true
 $miStart.Checked = Test-Path $StartupLnk
 $miStart.Add_Click({ Set-Startup $this.Checked })
@@ -101,6 +104,29 @@ if ($cfg.hotkeys) {
       else { Write-DdcLog "atalho $($cfg.hotkeys[$name]) indisponivel (em uso por outro programa)" }
     } catch { Write-DdcLog "atalho invalido para ${name}: $($_.Exception.Message)" }
   }
+}
+
+# ---------------------------------------------------------------- seguir o KVM
+# O KVM UGREEN so tem botao fisico. Ao apertar, o teclado (sentinela) some deste PC e o Windows manda
+# WM_DEVICECHANGE. Apos um pequeno atraso (varias mensagens chegam juntas), conferimos se a sentinela
+# ainda esta presente e mandamos o monitor para a entrada correspondente.
+$script:KvmOn = [bool]($cfg.kvm -and $cfg.kvm.enabled)
+$script:KvmPresent = $null
+if ($cfg.kvm -and $cfg.kvm.sentinel) {
+  $script:KvmPresent = Test-DevicePresent $cfg.kvm.sentinel
+  Write-DdcLog ("KVM: sentinela {0} {1}; seguir={2}" -f $cfg.kvm.sentinel, $(if ($script:KvmPresent) { 'presente' } else { 'ausente' }), $script:KvmOn)
+  $kvmTimer = New-Object Windows.Forms.Timer
+  $kvmTimer.Interval = [int]$(if ($cfg.kvm.delayMs) { $cfg.kvm.delayMs } else { 1500 })
+  $kvmTimer.Add_Tick({
+    $kvmTimer.Stop()
+    $now = Test-DevicePresent $cfg.kvm.sentinel
+    if ($now -eq $script:KvmPresent) { return }
+    $script:KvmPresent = $now
+    if (-not $script:KvmOn) { return }
+    if ($now) { Write-DdcLog 'KVM: teclado voltou'; Switch-To $cfg.kvm.onArrive }
+    else      { Write-DdcLog 'KVM: teclado saiu';   Switch-To $cfg.kvm.onLeave }
+  })
+  $script:hk.DeviceChanged = [Action]{ $kvmTimer.Stop(); $kvmTimer.Start() }
 }
 
 Write-DdcLog 'tray iniciado'

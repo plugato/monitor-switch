@@ -1,0 +1,3 @@
+# Scripts Linux precisam de LF mesmo quando o repositorio e clonado no Windows
+*.sh      text eol=lf
+linux/**  text eol=lf

@@ -29,12 +29,15 @@ namespace DdcCi {
     [DllImport("dxva2.dll")]  public static extern bool CapabilitiesRequestAndCapabilitiesReply(IntPtr h, StringBuilder sb, uint length);
   }
 
-  // Janela invisivel que recebe WM_HOTKEY e chama um callback com o id da tecla registrada.
+  // Janela invisivel que recebe WM_HOTKEY (atalhos globais) e WM_DEVICECHANGE (USB conectado/removido).
   public class HotKeyWindow : NativeWindow, IDisposable {
     [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     const int WM_HOTKEY = 0x0312;
-    public Action<int> Callback;
+    const int WM_DEVICECHANGE = 0x0219;
+    const int DBT_DEVNODES_CHANGED = 0x0007;
+    public Action<int> Callback;        // id do atalho pressionado
+    public Action DeviceChanged;        // qualquer mudanca na arvore de dispositivos
     int next = 1;
     public HotKeyWindow() { CreateHandle(new CreateParams()); }
     public int Register(uint modifiers, uint vk) {
@@ -44,9 +47,24 @@ namespace DdcCi {
     }
     protected override void WndProc(ref Message m) {
       if (m.Msg == WM_HOTKEY && Callback != null) Callback((int)m.WParam);
+      if (m.Msg == WM_DEVICECHANGE && (int)m.WParam == DBT_DEVNODES_CHANGED && DeviceChanged != null) DeviceChanged();
       base.WndProc(ref m);
     }
     public void Dispose() { for (int i = 1; i < next; i++) UnregisterHotKey(Handle, i); DestroyHandle(); }
+  }
+
+  // Lista rapida (poucos ms) dos InstanceIds USB presentes, via cfgmgr32. Get-PnpDevice leva ~2 s.
+  public class CfgMgr {
+    [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)] static extern int CM_Get_Device_ID_List_SizeW(out uint len, string filter, uint flags);
+    [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)] static extern int CM_Get_Device_ID_ListW(string filter, char[] buffer, uint len, uint flags);
+    const uint FILTER_ENUMERATOR = 0x1, FILTER_PRESENT = 0x100;
+    public static string[] PresentIds(string enumerator) {
+      uint len;
+      if (CM_Get_Device_ID_List_SizeW(out len, enumerator, FILTER_ENUMERATOR | FILTER_PRESENT) != 0 || len == 0) return new string[0];
+      var buf = new char[len];
+      if (CM_Get_Device_ID_ListW(enumerator, buf, len, FILTER_ENUMERATOR | FILTER_PRESENT) != 0) return new string[0];
+      return new string(buf).Split(new[] { '\0' }, StringSplitOptions.RemoveEmptyEntries);
+    }
   }
 }
 "@
@@ -61,6 +79,9 @@ function Get-MonitorConfig {
     hotkeys     = [ordered]@{ HDMI = 'Ctrl+Alt+1'; DP = 'Ctrl+Alt+2' }
     doubleClick = 'DP'
     logFile     = 'logs\monitor.log'
+    # Seguir o KVM: quando o dispositivo-sentinela (teclado atras do KVM) some deste PC, manda o monitor
+    # para onLeave; quando volta, manda para onArrive. Prefixo do InstanceId (Get-PnpDevice).
+    kvm         = [ordered]@{ enabled = $false; sentinel = 'USB\VID_046D&PID_C33A'; onLeave = 'DP'; onArrive = 'HDMI'; delayMs = 400 }
   }
   $path = Join-Path $script:Root 'config.json'
   if (Test-Path $path) {
@@ -91,7 +112,9 @@ function Write-DdcLog([string]$Message) {
 
 # ---------------------------------------------------------------- monitores
 function Get-DdcMonitors {
-  <# Lista os monitores fisicos. Responds=True para os que respondem a leitura DDC/CI (brilho, 0x10). #>
+  <# Lista os monitores fisicos. Responds=True para os que respondem a leitura DDC/CI (brilho, 0x10).
+     -NoProbe pula essa leitura (Responds=$null): usado no caminho de escrita, onde cada tentativa custa ~120 ms. #>
+  param([switch]$NoProbe)
   $script:__hmons = @()
   [DdcCi.Native]::EnumDisplayMonitors([IntPtr]::Zero, [IntPtr]::Zero,
     [DdcCi.Native+MonitorEnumProc]{ param($h, $dc, $r, $d) $script:__hmons += $h; $true }, [IntPtr]::Zero) | Out-Null
@@ -103,6 +126,8 @@ function Get-DdcMonitors {
     if (-not [DdcCi.Native]::GetPhysicalMonitorsFromHMONITOR($hm, $n, $arr)) { continue }
     foreach ($pm in $arr) {
       # a leitura pode falhar de forma transitoria logo apos uma escrita: tenta ate 3 vezes
+      $ok = $null
+      if ($NoProbe) { $list += [pscustomobject]@{ Handle = $pm.hPhysicalMonitor; Description = $pm.szPhysicalMonitorDescription; Responds = $null }; continue }
       $ok = $false
       for ($try = 0; $try -lt 3 -and -not $ok; $try++) {
         $t = 0; $c = 0; $m = 0
@@ -155,11 +180,21 @@ function Set-MonitorInput {
     $Raw = [int]$cfg.inputs[$Source]
   }
   $sent = 0
-  foreach ($mon in Get-DdcMonitors) {
+  foreach ($mon in (Get-DdcMonitors -NoProbe)) {
     if ([DdcCi.Native]::SetVCPFeature($mon.Handle, 0x60, [uint32]$Raw)) { $sent++ }
   }
   Write-DdcLog ("entrada -> {0} (0x{1:X2}) enviado a {2} monitor(es)" -f $(if ($Source) { $Source } else { 'raw' }), $Raw, $sent)
   $sent
+}
+
+# ---------------------------------------------------------------- dispositivos USB (KVM)
+function Test-DevicePresent([string]$InstanceIdPrefix) {
+  <# True se existe um dispositivo presente cujo InstanceId comece com o prefixo (ex.: 'USB\VID_046D&PID_C33A').
+     Usa cfgmgr32 (poucos ms). O enumerador e a parte antes da primeira barra (USB, HID, PCI...). #>
+  $p = $InstanceIdPrefix.TrimEnd('*')
+  $enum = $p.Split('\')[0]
+  foreach ($id in [DdcCi.CfgMgr]::PresentIds($enum)) { if ($id.StartsWith($p, [StringComparison]::OrdinalIgnoreCase)) { return $true } }
+  $false
 }
 
 # ---------------------------------------------------------------- hotkeys
@@ -180,4 +215,4 @@ function ConvertTo-HotKey([string]$Text) {
   @{ Modifiers = [uint32]$mods; Key = [uint32]$key }
 }
 
-Export-ModuleMember -Function Get-MonitorConfig, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey
+Export-ModuleMember -Function Get-MonitorConfig, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent
