@@ -1,11 +1,11 @@
 @echo off
 setlocal
-title Trocar entrada do monitor (DDC/CI 0x60)
+title Enviar valor ao VCP 0x60 (entrada do monitor)
 :loop
 echo.
-echo  Valores padrao MCCS:  0F=DP1  10=DP2  11=HDMI1  12=HDMI2  0x01..0x12 (VGA/DVI/etc)
-echo  Neste Samsung LC34G55T:  06=HDMI   09=DisplayPort
-echo  Digite o valor em hex (ex: 0A), ou "s" para sair.
+echo  Valores deste Samsung LC34G55T (config.json):  06=HDMI   09=DisplayPort
+echo  Padrao MCCS (nao funciona neste modelo):        0F=DP  11=HDMI1  12=HDMI2
+echo  Digite o valor em hex (ex: 09), ou "s" para sair.
 set /p V=" > "
 if /i "%V%"=="s" goto :eof
 if "%V%"=="" goto loop

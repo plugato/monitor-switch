@@ -1,0 +1,13 @@
+{
+  "monitor": "Samsung Odyssey G5 (LC34G55T)",
+  "inputs": {
+    "HDMI": 6,
+    "DP": 9
+  },
+  "hotkeys": {
+    "HDMI": "Ctrl+Alt+1",
+    "DP": "Ctrl+Alt+2"
+  },
+  "doubleClick": "DP",
+  "logFile": "logs\\monitor.log"
+}
