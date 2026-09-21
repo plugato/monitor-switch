@@ -3,6 +3,7 @@
 # torna os scripts executaveis e detecta os monitores.
 #   ./install.sh                 so verifica e orienta (nao usa sudo)
 #   ./install.sh --autostart     tambem cria ~/.config/autostart/monitor-tray.desktop (bandeja com a sessao)
+#   ./install.sh --no-autostart  remove essa entrada
 #   ./install.sh --hotkeys       tambem registra os atalhos globais (GNOME) via install-hotkeys.sh
 #   ./install.sh --kvm           tambem instala e liga o servico "seguir o KVM" (systemd de usuario, monitor-kvm.sh)
 #   ./install.sh --no-kvm        desliga e remove o servico "seguir o KVM"
@@ -12,10 +13,11 @@ HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 chmod +x "$HERE"/*.sh 2>/dev/null
 . "$HERE/ddcci.sh"
 
-autostart=0; hotkeys=0; kvm=0; nokvm=0
+autostart=0; noautostart=0; hotkeys=0; kvm=0; nokvm=0
 for a in "$@"; do
   case "$a" in
-    --autostart) autostart=1 ;;
+    --autostart)    autostart=1 ;;
+    --no-autostart) noautostart=1 ;;
     --hotkeys)   hotkeys=1 ;;
     --kvm)       kvm=1 ;;
     --no-kvm)    nokvm=1 ;;
@@ -93,7 +95,7 @@ if command -v ddcutil >/dev/null 2>&1 && ls /dev/i2c-* >/dev/null 2>&1; then
   for d in $(ddc_displays); do
     found=1
     if r="$(ddc_getvcp "$d" 10 2>/dev/null)"; then st="responde DDC/CI (brilho ${r%% *})"; else st='NAO responde a leitura DDC/CI'; fi
-    printf '  display %s  %-40s %s\n' "$d" "$(ddc_display_desc "$d")" "$st"
+    printf '  /dev/i2c-%-3s %-40s %s\n' "$d" "$(ddc_display_desc "$d")" "$st"
   done
   if [ "$found" = 0 ]; then
     warn 'nenhum display valido. DDC/CI desligado no menu do monitor, sem permissao no I2C, ou monitor em outra entrada.'
@@ -117,6 +119,13 @@ X-GNOME-Autostart-enabled=true
 EOF
   ok "autostart criado: $dir/monitor-tray.desktop"
   ddc_log 'autostart da bandeja: ativado'
+  ddc_notify 'Iniciar com a sessao: ligado'
+fi
+if [ "$noautostart" = 1 ]; then
+  echo
+  rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/monitor-tray.desktop"
+  ok 'autostart da bandeja removido'; ddc_log 'autostart da bandeja: removido'
+  ddc_notify 'Iniciar com a sessao: desligado'
 fi
 
 # 9. atalhos globais
@@ -167,6 +176,9 @@ EOF
     ok "sem systemd de usuario: autostart criado em $dir/monitor-kvm.desktop (vale a partir do proximo login)"
   fi
   ddc_log 'seguir KVM (Linux): servico instalado'
+  if [ "$(ddc_kvm_cfg enabled)" != true ]; then
+    warn 'kvm.enabled esta false: o servico observa mas nao troca. Ligue com ./monitor-kvm.sh --enable (ou pelo menu da bandeja).'
+  fi
   "$HERE/monitor-kvm.sh" --status
 fi
 

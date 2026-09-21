@@ -20,6 +20,9 @@ flock -n 9 || exit 0
 
 SET="$DDC_ROOT/set-monitor-input.sh"
 CTRL="$DDC_ROOT/monitor-control.sh"
+KVM="$DDC_ROOT/monitor-kvm.sh"
+INST="$DDC_ROOT/install.sh"
+LOG="$(ddc_log_file)"
 
 # terminal para abrir o painel
 term_cmd() {
@@ -33,11 +36,19 @@ term_cmd() {
   echo "\"$CTRL\""
 }
 
+# Mesmo menu do MonitorTray.ps1: um item por entrada (com o atalho no texto), controle completo, log,
+# seguir o KVM, iniciar com a sessao, sair. O yad nao tem item com marcador, entao os toggles sao pares ligar/desligar.
 menu=""
 for n in $(ddc_input_names); do
-  menu+="$(printf '%s  (0x%02X)' "$n" "$(ddc_input_value "$n")")!\"$SET\" --notify $n!video-display|"
+  hk="$(ddc_hotkey "$n")"
+  menu+="Mudar para $n${hk:+   [$hk]}!\"$SET\" --notify $n!video-display|"
 done
-menu+="Controle completo...!$(term_cmd)!preferences-desktop-display|"
+menu+="Abrir controle completo...!$(term_cmd)!preferences-desktop-display|"
+menu+="Abrir log!sh -c 'mkdir -p \"$(dirname "$LOG")\"; touch \"$LOG\"; xdg-open \"$LOG\"'!text-x-generic|"
+menu+="Seguir o KVM: ligar  (teclado sai -> $(ddc_kvm_cfg onLeave), volta -> $(ddc_kvm_cfg onArrive))!\"$KVM\" --enable!input-keyboard|"
+menu+="Seguir o KVM: desligar!\"$KVM\" --disable!input-keyboard|"
+menu+="Iniciar com a sessao: ligar!\"$INST\" --autostart!system-run|"
+menu+="Iniciar com a sessao: desligar!\"$INST\" --no-autostart!system-run|"
 menu+="Sair!quit!application-exit"
 
 ddc_log 'bandeja iniciada'

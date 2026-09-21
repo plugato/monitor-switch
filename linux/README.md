@@ -53,7 +53,7 @@ Permissão: o usuário precisa escrever em `/dev/i2c-*`. O `install.sh` mostra o
 | `monitor-control.sh`    | `MonitorControl.ps1`     | Painel em modo texto com as mesmas seções                    |
 | `monitor-tray.sh`       | `MonitorTray.ps1/.vbs`   | Bandeja via `yad`                                            |
 | `install-hotkeys.sh`    | hotkeys do `MonitorTray` | Registra `config.hotkeys` no GNOME; imprime config para KDE/XFCE/i3/sway/sxhkd |
-| `monitor-kvm.sh`        | "Seguir o KVM" do `MonitorTray` | Observa a sentinela USB via `udevadm monitor` e troca a entrada quando ela sai/volta |
+| `monitor-kvm.sh`        | "Seguir o KVM" do `MonitorTray` | Observa a sentinela USB via `udevadm monitor` e troca a entrada quando ela sai/volta; `--enable`/`--disable`/`--status` |
 | `install.sh`            | —                        | Diagnóstico de ambiente, autostart, hotkeys, serviço do KVM  |
 
 O log vai para o mesmo `logs/monitor.log` da raiz (o caminho `logs\monitor.log` do `config.json` é convertido).
@@ -66,11 +66,16 @@ o teclado atrás do KVM (sentinela `kvm.sentinel`) some deste PC; o `monitor-kvm
 
 - A sentinela é lida de `/sys/bus/usb/devices`, aceitando o formato do Windows
   (`USB\VID_046D&PID_C33A`) ou `vid:pid` (`046d:c33a`). Descubra o seu com `lsusb`.
-- `kvm.delayMs` agrupa a rajada de eventos de uma troca (várias interfaces USB somem juntas).
-- `kvm.enabled` do `config.json` é só informativo no Linux. Liga e desliga com `./install.sh --kvm` e
-  `./install.sh --no-kvm`, que criam/removem um serviço systemd de usuário (`monitor-kvm.service`).
-  Sem systemd de usuário, cai numa entrada de autostart.
-- `./monitor-kvm.sh --status` mostra a configuração e se a sentinela está presente agora.
+- `kvm.delayMs` (400 ms) agrupa a rajada de eventos de uma troca (várias interfaces USB somem juntas).
+  Abaixo de ~200 ms pode disparar duas vezes.
+- `kvm.enabled` funciona como no Windows: com `false` o serviço continua observando mas não troca nada.
+  O valor é relido a cada evento, então `./monitor-kvm.sh --enable` / `--disable` (ou o item do menu da
+  bandeja) valem na hora. Isso edita o `config.json` e precisa de `jq` ou `python3`.
+- O serviço em si é instalado com `./install.sh --kvm` e removido com `--no-kvm` (systemd de usuário,
+  `monitor-kvm.service`; sem systemd de usuário, cai numa entrada de autostart).
+- `./monitor-kvm.sh --status` mostra a configuração, se está ligado e se a sentinela está presente agora.
+- Tempo de reação: o `udev` avisa no instante da mudança; soma-se `delayMs`, a leitura de `/sys` (ms) e o
+  envio pelo barramento (ms). O resto é o hardware do KVM (~0,5–1 s) e o firmware do monitor (~1–2 s).
 - Se o `udevadm monitor` não rodar para o usuário (algumas distros restringem), o script faz polling a cada 2 s.
 - No outro PC, inverta `onLeave`/`onArrive`, como no Windows.
 
@@ -82,12 +87,18 @@ e dorme; o comando de volta é enviado mas não é ouvido. Use o botão do monit
 - **Atalhos globais** são do desktop, não da bandeja. Funcionam mesmo sem o `monitor-tray.sh` rodando.
   Se a combinação já estiver em uso, o GNOME simplesmente não dispara; troque em `config.json` e rode
   `./install-hotkeys.sh` de novo.
-- **Bandeja:** clique esquerdo executa `config.doubleClick` (não há duplo clique no `yad`); botão direito abre o menu.
+- **Bandeja:** clique esquerdo executa `config.doubleClick` (não há duplo clique no `yad`); botão direito abre o
+  menu, com os mesmos itens do Windows: uma entrada por linha (com o atalho), controle completo, abrir log,
+  seguir o KVM, iniciar com a sessão, sair. O `yad` não tem item com marcador, então "seguir o KVM" e
+  "iniciar com a sessão" aparecem como pares ligar/desligar.
 - **Escrita sem verificação:** o `ddcutil setvcp` é chamado com `--noverify`, porque a releitura de `0x60`
   devolve sempre `6` e a verificação falharia.
+- **Velocidade:** os monitores são endereçados pelo barramento I2C (`--bus N`), não por `--display N`, que
+  faria o `ddcutil` redetectar tudo a cada chamada (~1 s). É o equivalente do `-NoProbe` do Windows. Só o
+  `ddcutil detect` inicial custa ~1 s; o serviço do KVM faz isso uma vez na partida.
 - **Varredura de códigos** usa `ddcutil getvcp SCAN`, mais lenta que no Windows (até 1 minuto).
-- Para mandar em um display específico: `DDC_DISPLAY=2 ./set-monitor-input.sh DP`. Por padrão envia a todos,
-  como a versão Windows.
+- Para mandar em um barramento específico: `DDC_BUS=4 ./set-monitor-input.sh DP` (o número vem de
+  `./install.sh` ou `ddcutil detect`). Por padrão envia a todos, como a versão Windows.
 - Para usar outro arquivo de configuração: `DDC_CONFIG=/caminho/config.json ./set-monitor-input.sh DP`.
 
 ## Solução de problemas
@@ -100,3 +111,4 @@ e dorme; o comando de volta é enviado mas não é ouvido. Use o botão do monit
 | "ok" mas não troca                       | valor errado pro seu monitor; varra com `./menu.sh` (ver README principal) |
 | Tela preta após trocar                   | entrada de destino sem sinal; ligar o outro PC; voltar pelo botão       |
 | Atalho não dispara                       | `./install-hotkeys.sh --show`; combinação em uso; sessão não é GNOME    |
+| KVM não troca                            | `./monitor-kvm.sh --status`: ligado? sentinela certa (`lsusb`)? serviço ativo? sem `jq`/`python3` o `enabled` vale `false` |

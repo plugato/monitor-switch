@@ -5,7 +5,7 @@ set -u
 . "$(dirname "$(readlink -f "$0")")/ddcci.sh"
 ddc_require || exit 3
 
-MON=""   # numero do display ddcutil em uso
+MON=""   # barramento I2C (/dev/i2c-N) do monitor em uso
 
 # ---------------------------------------------------------------- helpers
 say()  { printf '%s\n' "$*"; }
@@ -16,7 +16,7 @@ confirm() { local r; read -rp "  $1 [s/N] " r || return 1; [[ "${r,,}" =~ ^s ]];
 find_monitor() {
   say '  Procurando monitor...'
   MON="$(ddc_find_display)" || MON=""
-  if [ -n "$MON" ]; then say "  Monitor encontrado: display $MON  ($(ddc_display_desc "$MON"))"
+  if [ -n "$MON" ]; then say "  Monitor encontrado: /dev/i2c-$MON  ($(ddc_display_desc "$MON"))"
   else say '  Nenhum monitor respondeu ao DDC/CI (DDC/CI desligado no menu, ou monitor em outra entrada?)'; fi
 }
 need_mon() {
@@ -159,7 +159,7 @@ REF
 find_monitor
 while :; do
   echo; hr
-  say "  $(ddc_monitor_name) - Controle DDC/CI    display: ${MON:-nenhum}    log: $(ddc_log_file)"
+  say "  $(ddc_monitor_name) - Controle DDC/CI    monitor: ${MON:+/dev/i2c-}${MON:-nenhum}    log: $(ddc_log_file)"
   hr
   say '  ENTRADA E IMAGEM       COR E MODO                 SISTEMA              AVANCADO'
   say '   1) Trocar entrada      7) Preset de cor (0x14)   13) Energia           17) Ler codigo'
@@ -167,7 +167,7 @@ while :; do
   say '   3) Contraste(0x12)     9) Idioma OSD (0xCC)      15) Informacoes       19) Varrer 0x00-0xFF'
   say '   4) Nitidez  (0x87)    10) 0xE0 / 11) 0xE1 / 12) 0xE2 (Samsung)         20) Capabilities'
   say '   5) Ganho R/G/B        21) 0xE5 / 22) 0xE6 (liga/desliga Samsung)      23) Referencia MCCS'
-  say '   6) Procurar monitor de novo                                            0) Sair'
+  say '   6) Procurar monitor    24) 0xF3 / 25) 0xF7 (Samsung)                    0) Sair'
   read -rp '  > ' op || exit 0
   echo
   case "$op" in
@@ -180,12 +180,17 @@ while :; do
     6)  find_monitor ;;
     7)  combo 'Preset de cor' 14 '1=sRGB' '2=Nativo / Normal' '3=4000K' '4=5000K' '5=6500K' '6=7500K' '8=9300K' '11=Usuario 1 (custom)' '12=Usuario 2 (custom)' ;;
     8)  combo 'Modo de imagem' DC '0=Padrao' '1=Produtividade' '2=Misto' '3=Filme' '4=Usuario' '5=Jogo' ;;
-    9)  combo 'Idioma do menu OSD' CC '2=Ingles' '8=Portugues (Portugal)' '10=Espanhol' '14=Portugues (Brasil)' '3=Frances' '4=Alemao' '5=Italiano' ;;
+    9)  combo 'Idioma do menu OSD' CC '1=Chines (trad.)' '2=Ingles' '3=Frances' '4=Alemao' '5=Italiano' '6=Japones' '7=Coreano' \
+          '8=Portugues (Portugal)' '9=Russo' '10=Espanhol' '11=Sueco' '12=Turco' '13=Chines (simpl.)' '14=Portugues (Brasil)' \
+          '15=Arabe' '16=Bulgaro' '17=Croata' '18=Tcheco' '19=Dinamarques' '20=Holandes' '21=Estoniano' '22=Finlandes' '23=Grego' \
+          '24=Hebraico' '25=Hungaro' '26=Letao' '27=Lituano' '28=Noruegues' '29=Polones' '30=Romeno' ;;
     10) combo '0xE0 (Samsung, funcao desconhecida)' E0 '0=0' '1=1' '2=2' '3=3' '4=4' '5=5' ;;
     11) combo '0xE1 (Samsung, funcao desconhecida)' E1 '0=0' '1=1' '2=2' '3=3' '4=4' '5=5' ;;
     12) combo '0xE2 (Samsung, funcao desconhecida)' E2 '0=0' '1=1' '2=2' '3=3' '4=4' '5=5' ;;
     21) combo '0xE5 (Samsung)' E5 '0=Desligado' '1=Ligado' ;;
     22) combo '0xE6 (Samsung)' E6 '0=Desligado' '1=Ligado' ;;
+    24) combo '0xF3 (Samsung, atual 1, max 2)' F3 '0=0' '1=1' '2=2' ;;
+    25) combo '0xF7 (Samsung, atual 0, max 3)' F7 '0=0' '1=1' '2=2' '3=3' ;;
     13) sec_power ;;
     14) sec_restore ;;
     15) sec_info ;;
