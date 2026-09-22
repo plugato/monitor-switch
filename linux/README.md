@@ -35,7 +35,8 @@ cd linux
 | módulo `i2c-dev`      | expõe `/dev/i2c-*`                     | sim         |
 | `jq` **ou** `python3` | leitura do `config.json`               | um dos dois (sem eles, usa HDMI=6 / DP=9) |
 | `libnotify` (`notify-send`) | notificação ao trocar            | não         |
-| `yad`                 | ícone de bandeja                       | só pro tray |
+| `yad`                 | ícone de bandeja (fallback)            | só pro tray |
+| `python3-gi` + AppIndicator | ícone de bandeja no COSMIC/Wayland | só pro tray |
 
 Permissão: o usuário precisa escrever em `/dev/i2c-*`. O `install.sh` mostra o comando certo
 (`sudo usermod -aG i2c $USER` ou a regra udev que vem com o ddcutil). Sem isso, só funciona com `sudo`.

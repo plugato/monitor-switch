@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # monitor-tray.sh - icone de bandeja para trocar a entrada do monitor (equivalente de MonitorTray.ps1).
-# Usa o yad (--notification). Clique esquerdo = entrada de config.doubleClick; clique direito = menu.
+# Usa AppIndicator no COSMIC/Wayland e yad como fallback. Clique esquerdo = entrada de config.doubleClick; clique direito = menu.
 #   Instalar yad:  sudo apt install yad  |  sudo dnf install yad  |  sudo pacman -S yad
 #   Iniciar com a sessao:  ./install.sh --autostart
 # Atalhos globais nao dependem deste script no Linux: veja install-hotkeys.sh.
@@ -52,8 +52,17 @@ menu+="Iniciar com a sessao: desligar!\"$INST\" --no-autostart!system-run|"
 menu+="Sair!quit!application-exit"
 
 ddc_log 'bandeja iniciada'
+tray_text="$(ddc_monitor_name) - entrada (clique: $(ddc_double_click), botao direito: menu)"
+if [ -x /usr/bin/python3 ] && /usr/bin/python3 -c 'import gi; gi.require_version("AyatanaAppIndicator3", "0.1")' 2>/dev/null; then
+  export MONITOR_TRAY_MENU="$menu"
+  export MONITOR_TRAY_TEXT="$tray_text"
+  exec /usr/bin/python3 "$DDC_ROOT/monitor-tray-appindicator.py"
+fi
+if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -n "${DISPLAY:-}" ]; then
+  export GDK_BACKEND=x11
+fi
 exec yad --notification \
   --image=video-display \
-  --text="$(ddc_monitor_name) - entrada (clique: $(ddc_double_click), botao direito: menu)" \
+  --text="$tray_text" \
   --command="\"$SET\" --notify $(ddc_double_click)" \
   --menu="$menu"

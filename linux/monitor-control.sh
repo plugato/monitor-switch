@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# monitor-control.sh - painel de controle do monitor via DDC/CI, em modo texto (equivalente de MonitorControl.ps1).
+# monitor-control.sh - painel grafico GTK do monitor via DDC/CI, com fallback em modo texto.
 # Secoes: entrada e imagem | cor e modo | sistema | avancado. Tudo que e enviado vai para logs/monitor.log.
 set -u
 . "$(dirname "$(readlink -f "$0")")/ddcci.sh"
 ddc_require || exit 3
+
+if [ -x /usr/bin/python3 ] && /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0")' 2>/dev/null; then
+  exec /usr/bin/python3 "$DDC_ROOT/monitor-control-gtk.py"
+fi
 
 MON=""   # barramento I2C (/dev/i2c-N) do monitor em uso
 
