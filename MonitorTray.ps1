@@ -13,10 +13,11 @@ if (-not $mutex.WaitOne(0)) { exit }
 
 $Dir = $PSScriptRoot
 $cfg = Get-MonitorConfig
+$MonitorName = Get-MonitorName
 $StartupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Odyssey G5 Tray.lnk'
 
 function Notify([string]$text, [string]$icon = 'Info') {
-  $tray.BalloonTipTitle = $cfg.monitor
+  $tray.BalloonTipTitle = $MonitorName
   $tray.BalloonTipText = $text
   $tray.BalloonTipIcon = $icon
   $tray.ShowBalloonTip(1500)
@@ -54,12 +55,12 @@ function New-TrayIcon {
 # ---------------------------------------------------------------- bandeja e menu
 $tray = New-Object Windows.Forms.NotifyIcon
 $tray.Icon = New-TrayIcon
-$tray.Text = "$($cfg.monitor) - entrada"
+$tray.Text = "$MonitorName - entrada"
 $tray.Visible = $true
 
 $menu = New-Object Windows.Forms.ContextMenuStrip
 $menu.Font = New-Object Drawing.Font('Segoe UI', 10)
-$title = $menu.Items.Add($cfg.monitor); $title.Enabled = $false
+$title = $menu.Items.Add($MonitorName); $title.Enabled = $false
 $menu.Items.Add('-') | Out-Null
 
 # um item por entrada definida em config.inputs (ordem do arquivo), com a tecla de atalho no texto

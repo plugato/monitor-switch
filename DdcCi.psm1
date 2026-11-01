@@ -72,9 +72,10 @@ namespace DdcCi {
 
 # ---------------------------------------------------------------- configuracao
 function Get-MonitorConfig {
-  <# Le config.json ao lado do modulo. Valores padrao cobrem o Samsung Odyssey G5 LC34G55T. #>
+  <# Le config.json ao lado do modulo. Entradas/atalhos padrao cobrem o Samsung LC34G55T.
+     'monitor' = 'auto' detecta o nome pelo EDID: use Get-MonitorName, nao $cfg.monitor, para exibir. #>
   $defaults = [ordered]@{
-    monitor     = 'Samsung Odyssey G5 (LC34G55T)'
+    monitor     = 'auto'
     inputs      = [ordered]@{ HDMI = 6; DP = 9 }
     hotkeys     = [ordered]@{ HDMI = 'Ctrl+Alt+1'; DP = 'Ctrl+Alt+2' }
     doubleClick = 'DP'
@@ -96,6 +97,37 @@ function Get-MonitorConfig {
     } catch { Write-DdcLog "config.json invalido, usando padroes: $($_.Exception.Message)" }
   }
   [pscustomobject]$defaults
+}
+
+function Get-MonitorName {
+  <# "monitor" do config.json; ausente, vazio ou 'auto' -> detectado pelo EDID via WMI (WmiMonitorID):
+     fabricante + modelo, ex.: 'Samsung LC34G55T' (mesmo resultado do ddcci.sh no Linux). Prefere monitor
+     externo a tela interna do notebook. Cache no processo: a consulta WMI custa ~100-300 ms. #>
+  $v = [string](Get-MonitorConfig).monitor
+  if ($v -and $v -ne 'auto') { return $v }
+  if ($script:__monitorName) { return $script:__monitorName }
+  $vendors = @{ SAM = 'Samsung'; SEC = 'Samsung'; DEL = 'Dell'; GSM = 'LG'; ACI = 'ASUS'; AUS = 'ASUS'; ACR = 'Acer'
+                AOC = 'AOC'; BNQ = 'BenQ'; HWP = 'HP'; LEN = 'Lenovo'; PHL = 'Philips'; MSI = 'MSI'; GBT = 'Gigabyte'
+                VSC = 'ViewSonic'; IVM = 'Iiyama'; NEC = 'NEC' }
+  $text = { param($codes) (-join ($codes | Where-Object { $_ } | ForEach-Object { [char]$_ })).Trim() }
+  $name = $null
+  try {
+    $ids = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID -ErrorAction Stop | Where-Object Active)
+    $internal = @{}
+    Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorConnectionParams -ErrorAction SilentlyContinue |
+      ForEach-Object { $internal[$_.InstanceName] = ([uint32]$_.VideoOutputTechnology -eq [uint32]2147483648) }  # 0x80000000 = tela interna
+    $ordered = @($ids | Where-Object { -not $internal[$_.InstanceName] }) + @($ids | Where-Object { $internal[$_.InstanceName] })
+    foreach ($m in $ordered) {
+      $model = & $text $m.UserFriendlyName
+      if (-not $model) { continue }
+      $mfg = & $text $m.ManufacturerName
+      $vendor = if ($vendors.ContainsKey($mfg)) { $vendors[$mfg] } else { $mfg }
+      $name = "$vendor $model".Trim(); break
+    }
+  } catch { Write-DdcLog "nao consegui ler o nome do monitor (WMI): $($_.Exception.Message)" }
+  if (-not $name) { return 'Monitor' }   # sem cache: tenta de novo na proxima chamada
+  $script:__monitorName = $name
+  $name
 }
 
 # ---------------------------------------------------------------- log
@@ -215,4 +247,4 @@ function ConvertTo-HotKey([string]$Text) {
   @{ Modifiers = [uint32]$mods; Key = [uint32]$key }
 }
 
-Export-ModuleMember -Function Get-MonitorConfig, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent
+Export-ModuleMember -Function Get-MonitorConfig, Get-MonitorName, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent

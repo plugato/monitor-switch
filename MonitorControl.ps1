@@ -21,7 +21,7 @@ function Log([string]$s) { $script:txtLog.AppendText(("[{0:HH:mm:ss}] {1}`r`n" -
 
 # ---------------------------------------------------------------- janela
 $form = New-Object Windows.Forms.Form
-$form.Text = "$($cfg.monitor) - Controle DDC/CI"
+$form.Text = "$(Get-MonitorName) - Controle DDC/CI"
 $form.Size = '640,760'; $form.StartPosition = 'CenterScreen'; $form.FormBorderStyle = 'FixedSingle'; $form.MaximizeBox = $false
 $form.Font = New-Object Drawing.Font('Segoe UI', 9)
 

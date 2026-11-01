@@ -156,6 +156,8 @@ não escuta; use o botão do monitor.
 }
 ```
 
+- `monitor`: nome mostrado na bandeja, nas notificações e no painel. Sem a chave, vazio ou `"auto"`, é
+  detectado pelo EDID do monitor (`Samsung LC34G55T`): WMI `WmiMonitorID` no Windows, `ddcutil detect` no Linux.
 - `inputs`: nome → valor do VCP 0x60. Pode adicionar entradas (ex.: `"HDMI2": 7`); o menu da bandeja e o
   painel criam um botão por item.
 - `hotkeys`: modificadores `Ctrl`, `Alt`, `Shift`, `Win` mais uma tecla (`1`, `F9`, `D`...). Deixe `{}`
@@ -180,7 +182,7 @@ não escuta; use o botão do monitor.
 2. Tente primeiro os valores padrão de entrada (`0x0F` DP, `0x11` HDMI1, `0x12` HDMI2) pelo `menu.cmd`.
 3. Se não funcionarem, varra `0x00` a `0x1F` com o outro aparelho **ligado e enviando sinal**, para ver a
    imagem trocar em vez de uma tela preta.
-4. Anote os valores em `config.json`.
+4. Anote os valores em `config.json` e deixe `"monitor": "auto"` para o nome vir do próprio monitor.
 
 ## Solução de problemas
 

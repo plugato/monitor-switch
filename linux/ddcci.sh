@@ -15,7 +15,7 @@ else DDC_CONFIG="$DDC_ROOT/../config.json"; fi
 DDC_BASE="$(cd "$(dirname "$DDC_CONFIG")" 2>/dev/null && pwd || echo "$DDC_ROOT")"
 
 # ---------------------------------------------------------------- configuracao
-# Mesmos padroes do DdcCi.psm1 (Samsung Odyssey G5 LC34G55T). config.json sobrescreve por chave.
+# Padroes de entradas/atalhos iguais aos do DdcCi.psm1 (Samsung LC34G55T). config.json sobrescreve por chave.
 _ddc_json() {  # _ddc_json get|keys chave [subchave]  -> valor ou lista de chaves (vazio se nao existir)
   local mode="$1"; shift
   [ -f "$DDC_CONFIG" ] || return 1
@@ -48,7 +48,36 @@ ddc_cfg_available() {  # config.json existe E ha jq ou python3 para le-lo; senao
   [ -f "$DDC_CONFIG" ] && { command -v jq >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; }
 }
 
-ddc_monitor_name() { local v; v="$(ddc_cfg_get monitor)"; echo "${v:-Samsung Odyssey G5 (LC34G55T)}"; }
+# Nome do monitor: "monitor" do config.json; ausente, vazio ou "auto" -> detectado pelo EDID do primeiro display
+# valido (ou de DDC_BUS): 'SAM:LC34G55T:...' -> 'Samsung LC34G55T'. O 'ddcutil detect' custa ~1 s, entao o nome
+# fica em cache em $XDG_RUNTIME_DIR/monitor-input.name (apague o arquivo ao trocar de monitor sem relogar).
+ddc_vendor() {  # codigo PNP do EDID -> fabricante
+  case "$1" in
+    SAM|SEC) echo Samsung ;; DEL) echo Dell ;; GSM) echo LG ;; ACI|AUS) echo ASUS ;; ACR) echo Acer ;;
+    AOC) echo AOC ;; BNQ) echo BenQ ;; HWP) echo HP ;; LEN) echo Lenovo ;; PHL) echo Philips ;;
+    MSI) echo MSI ;; GBT) echo Gigabyte ;; VSC) echo ViewSonic ;; IVM) echo Iiyama ;; NEC) echo NEC ;;
+    *) echo "$1" ;;
+  esac
+}
+ddc_monitor_name() {
+  local v cache desc mfg model
+  v="$(ddc_cfg_get monitor)"
+  if [ -n "$v" ] && [ "${v,,}" != auto ]; then echo "$v"; return; fi
+  cache="${XDG_RUNTIME_DIR:-/tmp}/monitor-input.name"
+  if [ -s "$cache" ]; then cat "$cache"; return; fi
+  command -v ddcutil >/dev/null 2>&1 && desc="$(ddcutil detect --terse 2>/dev/null | awk -v want="${DDC_BUS:-}" '
+    /^Display [0-9]+/ {ok=1; next} /^Invalid/ {ok=0}
+    ok && /I2C bus:/ {b=$0; sub(/.*\/dev\/i2c-/,"",b)}
+    ok && /Monitor:/ && (want=="" || b==want) {sub(/.*Monitor: */,""); print; exit}')"
+  if [ -n "${desc:-}" ]; then
+    IFS=: read -r mfg model _ <<< "$desc"
+    v="$(ddc_vendor "$mfg")${model:+ $model}"
+    echo "$v" > "$cache" 2>/dev/null
+    echo "$v"
+  else
+    echo Monitor                       # monitor em outra entrada ou sem DDC/CI: nao grava cache
+  fi
+}
 
 ddc_input_names() {  # um nome por linha, na ordem do config.json
   local k; k="$(ddc_cfg_keys inputs)"

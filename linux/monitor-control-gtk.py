@@ -27,7 +27,7 @@ class MonitorControl:
         self.log_view.set_editable(False)
         self.log_view.set_monospace(True)
         self.status = Gtk.Label(xalign=0)
-        self.window = Gtk.Window(title=f"{self.config.get('monitor', 'Monitor')} - Controle DDC/CI")
+        self.window = Gtk.Window(title="Controle DDC/CI")
         self.window.set_default_size(820, 700)
         self.window.set_border_width(10)
         self.window.connect("destroy", Gtk.main_quit)
@@ -58,13 +58,23 @@ class MonitorControl:
             return None
 
     def find_bus(self):
+        # primeiro bloco "Display N" do detect; blocos "Invalid display" (ex.: tela do notebook) sao ignorados
         result = self.run(["ddcutil", "detect", "--terse"])
+        self.bus = None
         if result:
-            match = re.search(r"/dev/i2c-(\d+)", result.stdout)
-            self.bus = match.group(1) if match else None
-        else:
-            self.bus = None
+            for block in re.split(r"\n(?=\S)", result.stdout):
+                match = re.search(r"/dev/i2c-(\d+)", block)
+                if block.startswith("Display") and match:
+                    self.bus = match.group(1)
+                    break
         return self.bus
+
+    def update_title(self):
+        # mesmo nome do ddcci.sh: "monitor" do config.json ou detectado pelo EDID (com cache)
+        script = Path(__file__).resolve().parent / "ddcci.sh"
+        result = self.run(["bash", "-c", '. "$1" && ddc_monitor_name', "bash", str(script)])
+        name = result.stdout.strip() if result and result.returncode == 0 else ""
+        self.window.set_title(f"{name or 'Monitor'} - Controle DDC/CI")
 
     def read_vcp(self, code):
         if self.bus is None and self.find_bus() is None:
@@ -265,6 +275,7 @@ class MonitorControl:
             self.status.set_text("Monitor nao encontrado ou DDC/CI desligado")
             self.refreshing = False
             return False
+        self.update_title()
         for code, (scale, spin, _) in self.sliders.items():
             result = self.read_vcp(code)
             if result:

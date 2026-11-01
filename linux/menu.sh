@@ -8,7 +8,7 @@ ddc_require || exit 3
 while :; do
   echo
   echo "  Valores deste $(ddc_monitor_name) (config.json): $(for n in $(ddc_input_names); do printf ' %02X=%s ' "$(ddc_input_value "$n")" "$n"; done)"
-  echo '  Padrao MCCS (nao funciona neste modelo):        0F=DP  11=HDMI1  12=HDMI2'
+  echo '  Padrao MCCS (a Samsung usa valores proprios):  0F=DP  11=HDMI1  12=HDMI2'
   echo '  Digite o valor em hex (ex: 09), ou "s" para sair.'
   read -rp ' > ' v || exit 0
   case "${v,,}" in

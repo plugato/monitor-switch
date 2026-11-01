@@ -101,6 +101,11 @@ e dorme; o comando de volta é enviado mas não é ouvido. Use o botão do monit
 - Para mandar em um barramento específico: `DDC_BUS=4 ./set-monitor-input.sh DP` (o número vem de
   `./install.sh` ou `ddcutil detect`). Por padrão envia a todos, como a versão Windows.
 - Para usar outro arquivo de configuração: `DDC_CONFIG=/caminho/config.json ./set-monitor-input.sh DP`.
+- **Nome do monitor** (notificações, bandeja, título do painel): vem de `"monitor"` no `config.json`. Sem a
+  chave, vazia ou `"auto"`, é detectado pelo EDID (`SAM:LC34G55T` → `Samsung LC34G55T`) e guardado em
+  `$XDG_RUNTIME_DIR/monitor-input.name`; apague esse arquivo se trocar de monitor sem relogar.
+  Em outro monitor, ajuste também `"inputs"`: `06`/`09` são proprietários da Samsung, o padrão MCCS é
+  `0x0F` (DP) / `0x11` (HDMI1) / `0x12` (HDMI2); descubra os seus com `./menu.sh`.
 
 ## Solução de problemas
 
