@@ -1,0 +1,90 @@
+# Valida os scripts a cada push/PR e, numa tag v* (ex.: v1.1.0), publica uma Release com os pacotes
+# monitor-switch-windows-<tag>.zip e monitor-switch-linux-<tag>.tar.gz.
+#   git tag v1.1.0 && git push origin v1.1.0
+name: build-release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sintaxe Bash
+        run: for f in linux/*.sh; do bash -n "$f"; done
+      - name: shellcheck (so erros)
+        run: shellcheck --severity=error linux/*.sh
+      - name: Sintaxe Python
+        run: python3 -m py_compile linux/*.py
+      - name: config.json valido
+        run: jq empty config.json
+
+  check-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sintaxe PowerShell (Windows PowerShell 5.1, o mesmo dos .cmd/.vbs)
+        shell: powershell
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem *.ps1, *.psm1) {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs) | Out-Null
+            foreach ($e in $errs) { Write-Host "::error file=$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
+          }
+          if ($bad) { exit 1 }
+      - name: Modulo carrega e exporta Get-MonitorName
+        shell: powershell
+        run: |
+          Import-Module .\DdcCi.psm1 -Force
+          Get-Command Get-MonitorName, Set-MonitorInput -ErrorAction Stop | Out-Null
+          "Nome detectado no runner (sem monitor fisico): $(Get-MonitorName)"
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-linux, check-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Montar pacotes
+        run: |
+          v="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          # no pacote o nome do monitor e detectado (EDID) em vez do nome fixo do config.json do repositorio
+          jq --indent 2 '.monitor = "auto"' config.json > config.dist.json && mv config.dist.json config.json
+          # Windows: scripts da raiz (sem a pasta linux/)
+          w="monitor-switch-windows-$v"
+          mkdir -p "$w"
+          cp *.ps1 *.psm1 *.cmd *.vbs config.json README.md "$w/"
+          echo "$v" > "$w/VERSION"
+          # Windows espera CRLF nos .cmd/.vbs
+          sed -i 's/\r\?$/\r/' "$w"/*.cmd "$w"/*.vbs
+          zip -qr "dist/$w.zip" "$w"
+          # Linux: mantem linux/ ao lado do config.json, que o ddcci.sh le em ../config.json
+          l="monitor-switch-linux-$v"
+          mkdir -p "$l"
+          cp -r linux config.json README.md "$l/"
+          rm -rf "$l/linux/__pycache__"
+          chmod +x "$l"/linux/*.sh "$l"/linux/*.py
+          echo "$v" > "$l/VERSION"
+          tar -czf "dist/$l.tar.gz" "$l"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -l dist
+      - name: Publicar Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "monitor-switch $GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "**Windows:** extraia o .zip e rode \`MonitorTray.vbs\`. **Linux:** \`tar xzf monitor-switch-linux-*.tar.gz && cd monitor-switch-linux-*/linux && ./install.sh --autostart\`. Ajuste \`config.json\` (\`\"monitor\": \"auto\"\` detecta o nome)."

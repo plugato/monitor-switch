@@ -167,6 +167,11 @@ não escuta; use o botão do monitor.
 
 ## Usar em outro computador
 
+Pacotes prontos ficam em **Releases** no GitHub: `monitor-switch-windows-<versão>.zip` e
+`monitor-switch-linux-<versão>.tar.gz` (com `"monitor": "auto"`). Para publicar uma versão nova:
+`git tag v1.2.0 && git push origin v1.2.0`; o workflow `.github/workflows/release.yml` valida os scripts
+e cria a release. Push e PR na `main` só rodam a validação.
+
 - **Windows:** copie a pasta, rode `MonitorTray.vbs`, marque "Iniciar com o Windows". Troque
   `doubleClick` pra `HDMI` se aquele PC estiver no DisplayPort.
 - **Linux:** pasta `linux/`: `./install.sh` confere `ddcutil`, módulo `i2c-dev` e permissões; depois
