@@ -56,6 +56,7 @@ Permissão: o usuário precisa escrever em `/dev/i2c-*`. O `install.sh` mostra o
 | `install-hotkeys.sh`    | hotkeys do `MonitorTray` | Registra `config.hotkeys` no GNOME; imprime config para KDE/XFCE/i3/sway/sxhkd |
 | `monitor-kvm.sh`        | "Seguir o KVM" do `MonitorTray` | Observa a sentinela USB via `udevadm monitor` e troca a entrada quando ela sai/volta; `--enable`/`--disable`/`--status` |
 | `install.sh`            | —                        | Diagnóstico de ambiente, autostart, hotkeys, serviço do KVM  |
+| `update.sh`             | `Update-Monitor.ps1`     | Atualiza pelas Releases do GitHub (`--check`, `--auto`); a bandeja chama sozinha. Ver README principal |
 
 O log vai para o mesmo `logs/monitor.log` da raiz (o caminho `logs\monitor.log` do `config.json` é convertido).
 

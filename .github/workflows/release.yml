@@ -47,6 +47,18 @@ jobs:
           Import-Module .\DdcCi.psm1 -Force
           Get-Command Get-MonitorName, Set-MonitorInput -ErrorAction Stop | Out-Null
           "Nome detectado no runner (sem monitor fisico): $(Get-MonitorName)"
+      - name: Comparacao de versoes do atualizador
+        shell: powershell
+        run: |
+          Import-Module .\DdcCi.psm1 -Force
+          $cases = @(
+            @('v1.0.0', 'v1.0.1', $true), @('v1.2.0', 'v1.10.0', $true), @('v0.0.0', 'v1.0.0', $true),
+            @('v1.2.0-3-gabc123', 'v1.2.0', $false), @('v2.0.0', 'v1.9.9', $false), @('v1.0.0', 'v1.0.0', $false))
+          foreach ($c in $cases) {
+            $r = Test-NewerVersion $c[0] $c[1]
+            if ($r -ne $c[2]) { Write-Host "::error::Test-NewerVersion $($c[0]) $($c[1]) = $r (esperado $($c[2]))"; exit 1 }
+          }
+          "instalada: $(Get-InstalledVersion); repo: $(Get-UpdateSetting repo); modo: $(Get-UpdateSetting mode)"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

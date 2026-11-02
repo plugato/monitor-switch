@@ -172,6 +172,21 @@ Pacotes prontos ficam em **Releases** no GitHub: `monitor-switch-windows-<versã
 `git tag v1.2.0 && git push origin v1.2.0`; o workflow `.github/workflows/release.yml` valida os scripts
 e cria a release. Push e PR na `main` só rodam a validação.
 
+### Atualização automática
+
+A bandeja consulta a última release 1 min após iniciar e depois a cada `update.intervalHours`. Havendo versão
+nova, baixa o pacote do sistema, confere o SHA-256 com o `SHA256SUMS.txt` da release, substitui os arquivos
+(**`config.json` e `logs/` são preservados**) e reinicia a bandeja. Manual: menu da bandeja >
+"Verificar atualizações", ou `Update-Monitor.ps1` (Windows) / `linux/update.sh` (Linux, `--check` só compara).
+
+```json
+"update": { "mode": "install", "repo": "plugato/monitor-switch", "intervalHours": 24 }
+```
+
+- `mode`: `install` (baixa e instala sozinho), `notify` (só avisa), `off`.
+- Numa cópia **git** (pasta de desenvolvimento) a verificação automática só avisa; a manual faz
+  `git pull --ff-only`.
+
 - **Windows:** copie a pasta, rode `MonitorTray.vbs`, marque "Iniciar com o Windows". Troque
   `doubleClick` pra `HDMI` se aquele PC estiver no DisplayPort.
 - **Linux:** pasta `linux/`: `./install.sh` confere `ddcutil`, módulo `i2c-dev` e permissões; depois

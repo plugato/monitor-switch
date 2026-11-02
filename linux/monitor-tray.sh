@@ -22,6 +22,7 @@ SET="$DDC_ROOT/set-monitor-input.sh"
 CTRL="$DDC_ROOT/monitor-control.sh"
 KVM="$DDC_ROOT/monitor-kvm.sh"
 INST="$DDC_ROOT/install.sh"
+UPD="$DDC_ROOT/update.sh"
 LOG="$(ddc_log_file)"
 
 # terminal para abrir o painel
@@ -49,7 +50,17 @@ menu+="Seguir o KVM: ligar  (teclado sai -> $(ddc_kvm_cfg onLeave), volta -> $(d
 menu+="Seguir o KVM: desligar!\"$KVM\" --disable!input-keyboard|"
 menu+="Iniciar com a sessao: ligar!\"$INST\" --autostart!system-run|"
 menu+="Iniciar com a sessao: desligar!\"$INST\" --no-autostart!system-run|"
+menu+="Verificar atualizacoes!\"$UPD\" --now --notify!system-software-update|"
 menu+="Sair!quit!application-exit"
+
+# atualizacao automatica: um laco por sessao (lock), enquanto houver bandeja desta pasta. Roda o update.sh
+# --auto agora e a cada hora; ele mesmo respeita update.mode e update.intervalHours do config.json.
+# Fica fora do processo da bandeja porque a atualizacao reinicia a bandeja.
+setsid -f bash -c '
+  exec 8>"${XDG_RUNTIME_DIR:-/tmp}/monitor-update-loop.lock"; flock -n 8 || exit 0
+  sleep 30
+  while pgrep -f "$1/monitor-tray|yad --notification.*$1/" >/dev/null; do "$1/update.sh" --auto; sleep 3600; done
+' _ "$DDC_ROOT" >/dev/null 2>&1 < /dev/null 9>&-   # sem herdar o lock da bandeja (fd 9)
 
 ddc_log 'bandeja iniciada'
 tray_text="$(ddc_monitor_name) - entrada (clique: $(ddc_double_click), botao direito: menu)"

@@ -16,5 +16,10 @@
     "onLeave": "DP",
     "onArrive": "HDMI",
     "delayMs": 400
+  },
+  "update": {
+    "mode": "install",
+    "repo": "plugato/monitor-switch",
+    "intervalHours": 24
   }
 }

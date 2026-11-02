@@ -210,6 +210,13 @@ ddc_kvm_cfg() {  # ddc_kvm_cfg enabled|sentinel|onLeave|onArrive|delayMs -> valo
   fi
   echo "$v"
 }
+ddc_update_cfg() {  # ddc_update_cfg mode|repo|intervalHours -> valor do bloco "update" ou padrao (usado por update.sh)
+  local v; v="$(ddc_cfg_get update "$1")"
+  if [ -z "$v" ]; then
+    case "$1" in mode) v=install ;; repo) v=plugato/monitor-switch ;; intervalHours) v=24 ;; esac
+  fi
+  echo "$v"
+}
 ddc_cfg_set() {  # ddc_cfg_set chave subchave valor_json -> edita config.json no lugar (precisa de jq ou python3)
   local tmp="$DDC_CONFIG.tmp"
   if command -v jq >/dev/null 2>&1; then

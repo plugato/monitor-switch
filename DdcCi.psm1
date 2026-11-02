@@ -83,6 +83,8 @@ function Get-MonitorConfig {
     # Seguir o KVM: quando o dispositivo-sentinela (teclado atras do KVM) some deste PC, manda o monitor
     # para onLeave; quando volta, manda para onArrive. Prefixo do InstanceId (Get-PnpDevice).
     kvm         = [ordered]@{ enabled = $false; sentinel = 'USB\VID_046D&PID_C33A'; onLeave = 'DP'; onArrive = 'HDMI'; delayMs = 400 }
+    # Atualizacao pelas Releases do GitHub: mode = install (baixa e instala sozinho) | notify (so avisa) | off
+    update      = [ordered]@{ mode = 'install'; repo = 'plugato/monitor-switch'; intervalHours = 24 }
   }
   $path = Join-Path $script:Root 'config.json'
   if (Test-Path $path) {
@@ -229,6 +231,46 @@ function Test-DevicePresent([string]$InstanceIdPrefix) {
   $false
 }
 
+# ---------------------------------------------------------------- atualizacao (Releases do GitHub)
+function Get-UpdateSetting([string]$Name) {
+  <# mode | repo | intervalHours do bloco "update" do config.json, com padrao por chave. #>
+  $defaults = @{ mode = 'install'; repo = 'plugato/monitor-switch'; intervalHours = 24 }
+  $u = (Get-MonitorConfig).update
+  if ($u -and $u.Contains($Name) -and "$($u[$Name])") { return $u[$Name] }
+  $defaults[$Name]
+}
+
+function Test-GitCheckout {
+  <# True numa copia git (pasta de desenvolvimento): a atualizacao usa 'git pull' e a automatica so avisa. #>
+  (Test-Path (Join-Path $script:Root '.git')) -and [bool](Get-Command git -ErrorAction SilentlyContinue)
+}
+
+function Get-InstalledVersion {
+  <# Tag instalada: arquivo VERSION do pacote, ou 'git describe' numa copia git. #>
+  if (Test-GitCheckout) {
+    $v = git -C $script:Root describe --tags --always 2>$null
+    if ($v) { return [string]$v }
+  } else {
+    $f = Join-Path $script:Root 'VERSION'
+    if (Test-Path $f) { return (Get-Content $f -TotalCount 1).Trim() }
+  }
+  'v0.0.0'
+}
+
+function Get-LatestRelease {
+  <# Tag da ultima release do repositorio (update.repo). Lanca excecao se offline ou sem release. #>
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  $repo = Get-UpdateSetting repo
+  (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{ 'User-Agent' = 'monitor-switch' } -TimeoutSec 15).tag_name
+}
+
+function Test-NewerVersion([string]$Current, [string]$Latest) {
+  <# True se Latest > Current. 'v1.2.0-3-gabc' (git describe) conta como v1.2.0. #>
+  $a = $Current.TrimStart('v').Split('-')[0]; $b = $Latest.TrimStart('v').Split('-')[0]
+  if (-not $b -or $a -eq $b) { return $false }
+  try { [version]$b -gt [version]$a } catch { $true }
+}
+
 # ---------------------------------------------------------------- hotkeys
 function ConvertTo-HotKey([string]$Text) {
   <# 'Ctrl+Alt+1' -> @{ Modifiers=6; Key=0x31 }.  Modificadores: Alt=1 Ctrl=2 Shift=4 Win=8 #>
@@ -247,4 +289,4 @@ function ConvertTo-HotKey([string]$Text) {
   @{ Modifiers = [uint32]$mods; Key = [uint32]$key }
 }
 
-Export-ModuleMember -Function Get-MonitorConfig, Get-MonitorName, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent
+Export-ModuleMember -Function Get-MonitorConfig, Get-MonitorName, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent, Get-UpdateSetting, Test-GitCheckout, Get-InstalledVersion, Get-LatestRelease, Test-NewerVersion

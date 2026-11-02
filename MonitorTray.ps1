@@ -83,9 +83,12 @@ $miKvm.Add_Click({ $script:KvmOn = $this.Checked; Write-DdcLog "seguir KVM: $($s
 $miStart = $menu.Items.Add('Iniciar com o Windows'); $miStart.CheckOnClick = $true
 $miStart.Checked = Test-Path $StartupLnk
 $miStart.Add_Click({ Set-Startup $this.Checked })
+$miUpd = $menu.Items.Add("Verificar atualizacoes ($(Get-InstalledVersion))")
+$miUpd.Add_Click({ Invoke-UpdateCheck $true })
 $menu.Items.Add('-') | Out-Null
+$script:Quit = { $tray.Visible = $false; $tray.Dispose(); if ($script:hk) { $script:hk.Dispose() }; [Windows.Forms.Application]::Exit() }
 $miExit = $menu.Items.Add('Sair')
-$miExit.Add_Click({ $tray.Visible = $false; $tray.Dispose(); if ($script:hk) { $script:hk.Dispose() }; [Windows.Forms.Application]::Exit() })
+$miExit.Add_Click({ & $script:Quit })
 $tray.ContextMenuStrip = $menu
 
 # clique esquerdo abre o menu; duplo clique manda para config.doubleClick
@@ -128,6 +131,49 @@ if ($cfg.kvm -and $cfg.kvm.sentinel) {
     else      { Write-DdcLog 'KVM: teclado saiu';   Switch-To $cfg.kvm.onLeave }
   })
   $script:hk.DeviceChanged = [Action]{ $kvmTimer.Stop(); $kvmTimer.Start() }
+}
+
+# ---------------------------------------------------------------- atualizacao automatica
+# Consulta a ultima release 1 min apos iniciar e depois a cada update.intervalHours. Para instalar, a bandeja
+# abre o Update-Monitor.ps1 e fecha; ele espera este processo sair, copia os arquivos e abre a bandeja de novo.
+function Invoke-UpdateCheck([bool]$manual) {
+  $mode = Get-UpdateSetting mode
+  if (-not $manual -and $mode -eq 'off') { return }
+  $cur = Get-InstalledVersion
+  try { $latest = Get-LatestRelease } catch {
+    Write-DdcLog "update: sem acesso as releases: $($_.Exception.Message)"
+    if ($manual) { Notify 'Nao consegui consultar as releases no GitHub' 'Warning' }
+    return
+  }
+  if (-not (Test-NewerVersion $cur $latest)) {
+    Write-DdcLog "update: $cur ja e a versao mais recente ($latest)"
+    if ($manual) { Notify "Versao $cur ja e a mais recente" }
+    return
+  }
+  # automatico numa copia git (pasta de desenvolvimento) so avisa, como no Linux
+  if ($manual -or ($mode -eq 'install' -and -not (Test-GitCheckout))) {
+    Write-DdcLog "update: instalando $latest (instalada: $cur)"
+    Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+      '-File', "`"$(Join-Path $Dir 'Update-Monitor.ps1')`"", '-Tag', $latest, '-WaitPid', $PID, '-Restart'
+    & $script:Quit
+  } else {
+    Notify "Nova versao $latest disponivel (instalada: $cur). Menu > Verificar atualizacoes"
+  }
+}
+$updTimer = New-Object Windows.Forms.Timer
+$updTimer.Interval = 60000
+$updTimer.Add_Tick({
+  $h = 24; try { $h = [Math]::Min([Math]::Max([int](Get-UpdateSetting intervalHours), 1), 500) } catch { }
+  $updTimer.Interval = $h * 3600000
+  Invoke-UpdateCheck $false
+})
+$updTimer.Start()
+
+# resultado de uma atualizacao feita pelo Update-Monitor.ps1 antes de reabrir a bandeja
+$marker = Join-Path $env:TEMP 'monitor-switch-updated.txt'
+if (Test-Path $marker) {
+  $msg = (Get-Content $marker -Raw).Trim(); Remove-Item $marker -Force -ErrorAction SilentlyContinue
+  Notify $msg $(if ($msg -like 'Falha*') { 'Warning' } else { 'Info' })
 }
 
 Write-DdcLog 'tray iniciado'
