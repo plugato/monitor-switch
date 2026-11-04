@@ -15,7 +15,11 @@
     "sentinel": "USB\\VID_046D&PID_C33A",
     "onLeave": "DP",
     "onArrive": "HDMI",
-    "delayMs": 400
+    "delayMs": 400,
+    "linux": {
+      "onLeave": "HDMI",
+      "onArrive": "DP"
+    }
   },
   "update": {
     "mode": "install",

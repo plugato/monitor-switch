@@ -98,6 +98,10 @@ function Get-MonitorConfig {
       }
     } catch { Write-DdcLog "config.json invalido, usando padroes: $($_.Exception.Message)" }
   }
+  # kvm.windows sobrescreve chaves do kvm neste PC (o mesmo config.json serve ao Linux com kvm.linux)
+  if ($defaults.kvm -is [System.Collections.IDictionary] -and $defaults.kvm['windows'] -is [pscustomobject]) {
+    foreach ($q in $defaults.kvm['windows'].PSObject.Properties) { $defaults.kvm[$q.Name] = $q.Value }
+  }
   [pscustomobject]$defaults
 }
 

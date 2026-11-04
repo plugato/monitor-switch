@@ -204,7 +204,10 @@ ddc_scan() {  # ddc_scan BUS -> linhas 'CODIGO atual max tipo' de todos os codig
 # Equivalente de Test-DevicePresent: a sentinela e um dispositivo USB atras do KVM (teclado). Le /sys direto,
 # sem depender de lsusb. Aceita o formato do Windows ('USB\VID_046D&PID_C33A') ou 'vid:pid' ('046d:c33a').
 ddc_kvm_cfg() {  # ddc_kvm_cfg enabled|sentinel|onLeave|onArrive|delayMs -> valor do bloco "kvm" ou padrao
-  local v; v="$(ddc_cfg_get kvm "$1")"
+  # kvm.linux.<chave> tem prioridade: o mesmo config.json serve aos dois PCs, cada um com sua direcao
+  # (ex.: Windows no HDMI com onLeave=DP; Linux no DP com "linux": {"onLeave": "HDMI", "onArrive": "DP"}).
+  local v; v="$(ddc_cfg_get kvm linux "$1")"
+  [ -n "$v" ] || v="$(ddc_cfg_get kvm "$1")"
   if [ -z "$v" ]; then
     case "$1" in enabled) v=false ;; sentinel) v='USB\VID_046D&PID_C33A' ;; onLeave) v=DP ;; onArrive) v=HDMI ;; delayMs) v=400 ;; esac
   fi

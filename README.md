@@ -124,7 +124,21 @@ deste PC e o Windows emite `WM_DEVICECHANGE`. A aplicação de bandeja observa u
 - sentinela **voltou** → monitor vai para `kvm.onArrive` (HDMI).
 
 Liga e desliga pelo menu do ícone ("Seguir o KVM") ou por `kvm.enabled` no `config.json`.
-No outro PC, inverta `onLeave`/`onArrive`.
+
+**Rode nos dois PCs.** O comando que vale é o de quem está **saindo**: esse PC é o que o monitor está
+exibindo, então o DDC/CI dele é ouvido na hora. O PC que **recebe** o teclado fala por uma entrada
+inativa, que o monitor às vezes demora ou se recusa a atender — se só um PC seguir o KVM, a troca de
+volta para ele fica lenta ou falha. Com os dois rodando, cada troca é feita por quem sai e confirmada
+por quem chega (mesma entrada, sem conflito). Não há comunicação de rede entre eles: os dois reagem ao
+mesmo teclado.
+
+O mesmo `config.json` serve aos dois: `kvm.linux` e `kvm.windows` sobrescrevem as chaves do `kvm` em cada
+sistema. Aqui o Windows está no HDMI e o Linux no DP:
+
+```json
+"kvm": { "enabled": true, "onLeave": "DP", "onArrive": "HDMI",
+         "linux": { "onLeave": "HDMI", "onArrive": "DP" } }
+```
 
 **Tempo de reação.** Não há verificação periódica: o Windows avisa no instante em que o USB muda.
 O atraso total é a soma de:

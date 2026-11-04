@@ -66,6 +66,10 @@ Mesma ideia da versão Windows: o KVM não aceita comando, então reagimos a ele
 o teclado atrás do KVM (sentinela `kvm.sentinel`) some deste PC; o `monitor-kvm.sh` percebe pelo
 `udevadm monitor` e manda o monitor para `kvm.onLeave`. Quando o teclado volta, manda `kvm.onArrive`.
 
+- Instale também no outro PC (bandeja do Windows com "Seguir o KVM"): quem sai manda o comando pela
+  entrada ativa, que o monitor atende na hora. Só um lado seguindo deixa a volta lenta.
+- `kvm.linux.onLeave` / `kvm.linux.onArrive` (e qualquer outra chave em `kvm.linux`) têm prioridade sobre
+  `kvm.*` neste PC, para usar o mesmo `config.json` do Windows com a direção invertida.
 - A sentinela é lida de `/sys/bus/usb/devices`, aceitando o formato do Windows
   (`USB\VID_046D&PID_C33A`) ou `vid:pid` (`046d:c33a`). Descubra o seu com `lsusb`.
 - `kvm.delayMs` (400 ms) agrupa a rajada de eventos de uma troca (várias interfaces USB somem juntas).
