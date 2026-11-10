@@ -6,7 +6,8 @@
 #   --notify               tambem mostra o resultado como notificacao (menu da bandeja)
 # Config (bloco "update" do config.json): mode = install (padrao) | notify | off; repo; intervalHours (24).
 # Preserva config.json e logs/. Numa copia git (pasta de desenvolvimento) usa 'git pull --ff-only' em vez do
-# pacote, e no modo --auto so avisa, para nunca mexer no seu trabalho sozinho.
+# pacote; no modo --auto so faz isso sozinho com a arvore limpa e no branch main (senao so avisa, para nunca
+# mexer no seu trabalho).
 # O pacote baixado e conferido com o SHA256SUMS.txt da mesma release antes de tocar em qualquer arquivo.
 set -u
 . "$(dirname "$(readlink -f "$0")")/ddcci.sh"
@@ -24,6 +25,9 @@ say() {  # mensagem no terminal, no log e (com --notify) na area de trabalho
   return 0
 }
 is_git() { [ -d "$ROOT/.git" ] && command -v git >/dev/null 2>&1; }
+git_clean_main() {  # arvore sem alteracoes (arquivos ignorados nao contam) e no branch main
+  [ "$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)" = main ] && [ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]
+}
 
 current_version() {
   if is_git; then git -C "$ROOT" describe --tags --always 2>/dev/null || echo v0.0.0
@@ -74,7 +78,9 @@ install_release() {  # install_release TAG
 update_git() {
   local before after
   before="$(git -C "$ROOT" rev-parse HEAD)"
-  if ! git -C "$ROOT" pull --ff-only -q 2>/dev/null; then
+  # sem prompt (roda em segundo plano): pelo remoto configurado; se ele pedir chave/senha, pelo HTTPS publico
+  if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=10' git -C "$ROOT" pull --ff-only -q 2>/dev/null &&
+     ! GIT_TERMINAL_PROMPT=0 git -C "$ROOT" pull --ff-only -q --tags "https://github.com/$REPO.git" main 2>/dev/null; then
     say 'git pull --ff-only falhou (alteracoes locais ou branch divergente); atualize na mao' dialog-warning; return 1
   fi
   after="$(git -C "$ROOT" rev-parse HEAD)"
@@ -119,7 +125,7 @@ main() {
     return 0
   fi
   if [ "$action" = check ]; then say "nova versao disponivel: $latest (instalada: $cur)"; return 0; fi
-  if [ "$action" = auto ] && { [ "$MODE" = notify ] || is_git; }; then
+  if [ "$action" = auto ] && { [ "$MODE" = notify ] || { is_git && ! git_clean_main; }; }; then
     say "nova versao $latest disponivel (instalada: $cur). Menu da bandeja > Verificar atualizacoes"; return 0
   fi
 

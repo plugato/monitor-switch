@@ -42,8 +42,10 @@ PY
     return 1
   fi
 }
-ddc_cfg_get()  { _ddc_json get "$@"; }
-ddc_cfg_keys() { _ddc_json keys "$@"; }
+# O bloco de topo "linux" sobrescreve qualquer chave neste PC (o mesmo config.json serve ao Windows com
+# "windows"), ex.: "linux": {"doubleClick": "HDMI"}. kvm.linux continua valendo (ddc_kvm_cfg).
+ddc_cfg_get()  { local v; [ "${1:-}" != linux ] && v="$(_ddc_json get linux "$@")" && [ -n "$v" ] && { echo "$v"; return; }; _ddc_json get "$@"; }
+ddc_cfg_keys() { local v; [ "${1:-}" != linux ] && v="$(_ddc_json keys linux "$@")" && [ -n "$v" ] && { echo "$v"; return; }; _ddc_json keys "$@"; }
 ddc_cfg_available() {  # config.json existe E ha jq ou python3 para le-lo; senao valem os padroes
   [ -f "$DDC_CONFIG" ] && { command -v jq >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; }
 }
@@ -210,6 +212,13 @@ ddc_kvm_cfg() {  # ddc_kvm_cfg enabled|sentinel|onLeave|onArrive|delayMs -> valo
   [ -n "$v" ] || v="$(ddc_cfg_get kvm "$1")"
   if [ -z "$v" ]; then
     case "$1" in enabled) v=false ;; sentinel) v='USB\VID_046D&PID_C33A' ;; onLeave) v=DP ;; onArrive) v=HDMI ;; delayMs) v=400 ;; esac
+  fi
+  echo "$v"
+}
+ddc_peer_cfg() {  # ddc_peer_cfg enabled|port|host|timeoutSec -> valor do bloco "peer" ou padrao
+  local v; v="$(ddc_cfg_get peer "$1")"
+  if [ -z "$v" ]; then
+    case "$1" in enabled) v=true ;; port) v=47321 ;; timeoutSec) v=15 ;; esac
   fi
   echo "$v"
 }

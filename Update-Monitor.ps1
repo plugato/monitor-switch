@@ -32,7 +32,10 @@ if ($WaitPid) { Wait-Process -Id $WaitPid -Timeout 20 -ErrorAction SilentlyConti
 $ok = $false; $tmp = $null
 try {
   if (Test-GitCheckout) {
-    git -C $Root pull --ff-only -q
+    # sem prompt (roda escondido): pelo remoto configurado; se ele pedir chave/senha, pelo HTTPS publico
+    $env:GIT_TERMINAL_PROMPT = '0'; $env:GIT_SSH_COMMAND = 'ssh -o BatchMode=yes -o ConnectTimeout=10'
+    git -C $Root pull --ff-only -q 2>$null
+    if ($LASTEXITCODE) { git -C $Root pull --ff-only -q --tags "https://github.com/$(Get-UpdateSetting repo).git" main 2>$null }
     if ($LASTEXITCODE) { throw 'git pull --ff-only falhou (alteracoes locais ou branch divergente); atualize na mao' }
   } else {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12

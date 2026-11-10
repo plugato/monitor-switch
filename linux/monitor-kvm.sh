@@ -11,6 +11,9 @@
 #   ./monitor-kvm.sh --enable | --disable   grava kvm.enabled no config.json (menu da bandeja usa isto)
 #   ./monitor-kvm.sh --once     compara com o estado salvo e troca se mudou (uso em regra udev ou cron)
 # Eventos vem do 'udevadm monitor' (subsistema usb). Se ele nao rodar para este usuario, faz polling a cada 2 s.
+# Com python3, a execucao fica com o monitor-kvm.py, que tambem conversa com o outro PC pela rede (bloco "peer"):
+# so troca para o outro PC se ele estiver pronto, e o monitor vai sozinho quando ele voltar. Sem python3, roda o
+# laco bash abaixo (sem rede, comportamento antigo).
 set -u
 . "$(dirname "$(readlink -f "$0")")/ddcci.sh"
 
@@ -21,6 +24,7 @@ DELAY_MS="$(ddc_kvm_cfg delayMs)"; [[ "$DELAY_MS" =~ ^[0-9]+$ ]] || DELAY_MS=400
 DELAY="$(awk -v ms="$DELAY_MS" 'BEGIN { printf "%.2f", ms / 1000 }')"
 STATE="${XDG_RUNTIME_DIR:-/tmp}/monitor-kvm.state"
 
+PY=""; for p in /usr/bin/python3 python3; do command -v "$p" >/dev/null 2>&1 && { PY="$p"; break; }; done
 enabled() { [ "$(ddc_kvm_cfg enabled)" = true ]; }
 present_now() { if ddc_device_present "$SENT"; then echo 1; else echo 0; fi; }
 
@@ -46,6 +50,8 @@ status() {
     echo "Servico:    $(systemctl --user is-active monitor-kvm.service 2>/dev/null || echo 'nao instalado')  (./install.sh --kvm)"
   fi
   ddc_cfg_available || echo 'Aviso: sem jq/python3 o config.json nao e lido e kvm.enabled vale false.'
+  if [ -n "$PY" ]; then "$PY" "$DDC_ROOT/monitor-kvm.py" --peer-status
+  else echo 'Rede:       sem python3, o servico roda sem conversar com o outro PC'; fi
 }
 
 switch_to() {
@@ -103,6 +109,7 @@ if ! ddc_usb_ids "$SENT" >/dev/null; then
 fi
 ddc_require || exit 3
 [ "${1:-}" = --once ] && { once; exit 0; }
+[ -n "$PY" ] && exec "$PY" "$DDC_ROOT/monitor-kvm.py"
 
 ddc_displays >/dev/null                  # preenche o cache de barramentos ja na partida
 check

@@ -3,6 +3,8 @@
 #   ./set-monitor-input.sh DP               nomes definidos em config.json (HDMI, DP)
 #   ./set-monitor-input.sh --raw 0x09       valor direto no VCP 0x60 (hex 0xNN ou decimal)
 #   ./set-monitor-input.sh --notify DP      tambem mostra notificacao (usado pela bandeja e pelos atalhos)
+# Por nome, tambem pede ao outro PC (rede, bloco "peer") que envie o mesmo comando: se o monitor estiver exibindo
+# o outro PC, e ele quem o monitor escuta. Assim a troca funciona a partir de qualquer um dos dois.
 # Saida: 0 ok, 1 uso incorreto, 2 nenhum monitor aceitou, 3 ddcutil ausente.
 set -u
 . "$(dirname "$(readlink -f "$0")")/ddcci.sh"
@@ -29,6 +31,9 @@ if [ -n "$raw" ]; then
 else
   n="$(ddc_set_input "$source")" || exit 1
   label="$source"
+  for py in /usr/bin/python3 python3; do
+    command -v "$py" >/dev/null 2>&1 && { "$py" "$DDC_ROOT/monitor-kvm.py" --tell-peer "$source" >/dev/null 2>&1 & break; }
+  done
 fi
 
 echo "Monitor -> $label  (comando aceito por $n monitor(es))"

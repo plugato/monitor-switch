@@ -179,6 +179,12 @@ EOF
   if [ "$(ddc_kvm_cfg enabled)" != true ]; then
     warn 'kvm.enabled esta false: o servico observa mas nao troca. Ligue com ./monitor-kvm.sh --enable (ou pelo menu da bandeja).'
   fi
+  # conversa com o outro PC (bloco "peer"): precisa de python3 e da porta UDP liberada
+  if ! command -v python3 >/dev/null 2>&1; then
+    warn 'sem python3: o servico segue o KVM sem conversar com o outro PC (pode mandar o monitor para um PC desligado)'
+  elif [ "$(ddc_peer_cfg enabled)" = true ] && grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
+    warn "ufw ativo: libere a conversa com o outro PC com  sudo ufw allow $(ddc_peer_cfg port)/udp"
+  fi
   "$HERE/monitor-kvm.sh" --status
 fi
 

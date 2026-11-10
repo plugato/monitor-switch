@@ -24,6 +24,8 @@ jobs:
         run: shellcheck --severity=error linux/*.sh
       - name: Sintaxe Python
         run: python3 -m py_compile linux/*.py
+      - name: Regras de troca e protocolo com o outro PC
+        run: python3 -m unittest linux/test_monitor_kvm.py -v
       - name: config.json valido
         run: jq empty config.json
 
@@ -59,6 +61,17 @@ jobs:
             if ($r -ne $c[2]) { Write-Host "::error::Test-NewerVersion $($c[0]) $($c[1]) = $r (esperado $($c[2]))"; exit 1 }
           }
           "instalada: $(Get-InstalledVersion); repo: $(Get-UpdateSetting repo); modo: $(Get-UpdateSetting mode)"
+      - name: Mensagens para o outro PC (mesmo formato do linux/monitor-kvm.py)
+        shell: powershell
+        run: |
+          Import-Module .\DdcCi.psm1 -Force
+          $own = New-PeerMessage hello @{ in = 'HDMI'; kbd = 1; mon = 1 }
+          if ($null -ne (ConvertFrom-PeerMessage $own)) { Write-Host '::error::mensagem do proprio PC nao foi ignorada'; exit 1 }
+          $other = [Text.Encoding]::UTF8.GetBytes('MSW1 {"t":"switch","id":"pc/linux","os":"linux","to":"DP"}')
+          $m = ConvertFrom-PeerMessage $other
+          if ($m.t -ne 'switch' -or $m.to -ne 'DP') { Write-Host "::error::ConvertFrom-PeerMessage leu $($m | ConvertTo-Json -Compress)"; exit 1 }
+          if ($null -ne (ConvertFrom-PeerMessage ([Text.Encoding]::UTF8.GetBytes('lixo')))) { Write-Host '::error::lixo aceito'; exit 1 }
+          "porta $(Get-PeerSetting port); monitor externo conectado no runner: $(Test-MonitorAttached)"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -86,7 +99,7 @@ jobs:
           l="monitor-switch-linux-$v"
           mkdir -p "$l"
           cp -r linux config.json README.md "$l/"
-          rm -rf "$l/linux/__pycache__"
+          rm -rf "$l/linux/__pycache__" "$l/linux/test_monitor_kvm.py"
           chmod +x "$l"/linux/*.sh "$l"/linux/*.py
           echo "$v" > "$l/VERSION"
           tar -czf "dist/$l.tar.gz" "$l"

@@ -25,5 +25,14 @@
     "mode": "install",
     "repo": "plugato/monitor-switch",
     "intervalHours": 24
+  },
+  "peer": {
+    "enabled": true,
+    "port": 47321,
+    "host": "",
+    "timeoutSec": 15
+  },
+  "linux": {
+    "doubleClick": "HDMI"
   }
 }

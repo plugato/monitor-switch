@@ -29,15 +29,20 @@ namespace DdcCi {
     [DllImport("dxva2.dll")]  public static extern bool CapabilitiesRequestAndCapabilitiesReply(IntPtr h, StringBuilder sb, uint length);
   }
 
-  // Janela invisivel que recebe WM_HOTKEY (atalhos globais) e WM_DEVICECHANGE (USB conectado/removido).
+  // Janela invisivel que recebe WM_HOTKEY (atalhos globais), WM_DEVICECHANGE (USB conectado/removido),
+  // WM_POWERBROADCAST (suspender/retomar) e WM_DISPLAYCHANGE (monitor conectado/desconectado).
   public class HotKeyWindow : NativeWindow, IDisposable {
     [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     const int WM_HOTKEY = 0x0312;
     const int WM_DEVICECHANGE = 0x0219;
     const int DBT_DEVNODES_CHANGED = 0x0007;
+    const int WM_POWERBROADCAST = 0x0218;
+    const int WM_DISPLAYCHANGE = 0x007E;
     public Action<int> Callback;        // id do atalho pressionado
     public Action DeviceChanged;        // qualquer mudanca na arvore de dispositivos
+    public Action<int> PowerChanged;    // 4 = PBT_APMSUSPEND, 0x12 = PBT_APMRESUMEAUTOMATIC
+    public Action DisplayChanged;       // monitores ou resolucao mudaram
     int next = 1;
     public HotKeyWindow() { CreateHandle(new CreateParams()); }
     public int Register(uint modifiers, uint vk) {
@@ -48,6 +53,8 @@ namespace DdcCi {
     protected override void WndProc(ref Message m) {
       if (m.Msg == WM_HOTKEY && Callback != null) Callback((int)m.WParam);
       if (m.Msg == WM_DEVICECHANGE && (int)m.WParam == DBT_DEVNODES_CHANGED && DeviceChanged != null) DeviceChanged();
+      if (m.Msg == WM_POWERBROADCAST && PowerChanged != null) PowerChanged((int)m.WParam);
+      if (m.Msg == WM_DISPLAYCHANGE && DisplayChanged != null) DisplayChanged();
       base.WndProc(ref m);
     }
     public void Dispose() { for (int i = 1; i < next; i++) UnregisterHotKey(Handle, i); DestroyHandle(); }
@@ -85,6 +92,8 @@ function Get-MonitorConfig {
     kvm         = [ordered]@{ enabled = $false; sentinel = 'USB\VID_046D&PID_C33A'; onLeave = 'DP'; onArrive = 'HDMI'; delayMs = 400 }
     # Atualizacao pelas Releases do GitHub: mode = install (baixa e instala sozinho) | notify (so avisa) | off
     update      = [ordered]@{ mode = 'install'; repo = 'plugato/monitor-switch'; intervalHours = 24 }
+    # Conversa com o outro PC pela rede local (UDP): so troca para ele se estiver pronto; ver README
+    peer        = [ordered]@{ enabled = $true; port = 47321; host = ''; timeoutSec = 15; key = '' }
   }
   $path = Join-Path $script:Root 'config.json'
   if (Test-Path $path) {
@@ -97,6 +106,15 @@ function Get-MonitorConfig {
         } else { $defaults[$p.Name] = $p.Value }
       }
     } catch { Write-DdcLog "config.json invalido, usando padroes: $($_.Exception.Message)" }
+  }
+  # o bloco de topo "windows" sobrescreve qualquer chave neste PC (o Linux usa "linux"); blocos sao mesclados por chave
+  if ($defaults['windows'] -is [System.Collections.IDictionary]) {
+    foreach ($k in @($defaults['windows'].Keys)) {
+      $v = $defaults['windows'][$k]
+      if ($v -is [pscustomobject] -and $defaults[$k] -is [System.Collections.IDictionary]) {
+        foreach ($q in $v.PSObject.Properties) { $defaults[$k][$q.Name] = $q.Value }
+      } else { $defaults[$k] = $v }
+    }
   }
   # kvm.windows sobrescreve chaves do kvm neste PC (o mesmo config.json serve ao Linux com kvm.linux)
   if ($defaults.kvm -is [System.Collections.IDictionary] -and $defaults.kvm['windows'] -is [pscustomobject]) {
@@ -235,6 +253,49 @@ function Test-DevicePresent([string]$InstanceIdPrefix) {
   $false
 }
 
+# ---------------------------------------------------------------- outro PC (rede local, UDP)
+# Os dois PCs trocam datagramas "MSW1 " + JSON: hello (a cada 5 s: entrada deste PC, teclado aqui, monitor conectado),
+# bye (ao suspender/sair) e switch (pede a quem esta na tela que envie o DDC). Mesmo protocolo do linux/monitor-kvm.py.
+function Get-PeerSetting([string]$Name) {
+  <# enabled | port | host | timeoutSec | key do bloco "peer" do config.json, com padrao por chave. #>
+  $defaults = @{ enabled = $true; port = 47321; host = ''; timeoutSec = 15; key = '' }
+  $p = (Get-MonitorConfig).peer
+  if ($p -and $p.Contains($Name) -and $null -ne $p[$Name] -and "$($p[$Name])" -ne '') { return $p[$Name] }
+  $defaults[$Name]
+}
+
+function Get-PeerId { "$env:COMPUTERNAME/windows" }
+
+function New-PeerMessage([string]$Type, [hashtable]$Fields = @{}) {
+  <# bytes de uma mensagem: New-PeerMessage hello @{ in = 'HDMI'; kbd = 1; mon = 1 } #>
+  $d = [ordered]@{ t = $Type; id = (Get-PeerId); os = 'windows' }
+  foreach ($k in $Fields.Keys) { $d[$k] = $Fields[$k] }
+  $key = [string](Get-PeerSetting key)
+  if ($key) { $d['key'] = $key }
+  [Text.Encoding]::UTF8.GetBytes('MSW1 ' + (ConvertTo-Json $d -Compress))
+}
+
+function ConvertFrom-PeerMessage([byte[]]$Data) {
+  <# objeto da mensagem, ou $null se nao for do protocolo, for deste PC ou a chave nao conferir. #>
+  if (-not $Data -or $Data.Length -lt 6) { return $null }
+  $text = [Text.Encoding]::UTF8.GetString($Data)
+  if (-not $text.StartsWith('MSW1 ')) { return $null }
+  try { $m = $text.Substring(5) | ConvertFrom-Json } catch { return $null }
+  if (-not $m -or -not $m.t -or $m.id -eq (Get-PeerId)) { return $null }
+  $key = [string](Get-PeerSetting key)
+  if ($key -and $m.key -ne $key) { return $null }
+  $m
+}
+
+function Test-MonitorAttached {
+  <# True se ha um monitor externo ativo (o notebook esta na dock / com o HDMI ligado). WMI, ~100-300 ms:
+     quem chama deve guardar o resultado. Sem WMI, assume True para nao bloquear a troca. #>
+  try {
+    $list = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorConnectionParams -ErrorAction Stop | Where-Object Active)
+    [bool]($list | Where-Object { [uint32]$_.VideoOutputTechnology -ne [uint32]2147483648 })   # 0x80000000 = tela interna
+  } catch { $true }
+}
+
 # ---------------------------------------------------------------- atualizacao (Releases do GitHub)
 function Get-UpdateSetting([string]$Name) {
   <# mode | repo | intervalHours do bloco "update" do config.json, com padrao por chave. #>
@@ -247,6 +308,14 @@ function Get-UpdateSetting([string]$Name) {
 function Test-GitCheckout {
   <# True numa copia git (pasta de desenvolvimento): a atualizacao usa 'git pull' e a automatica so avisa. #>
   (Test-Path (Join-Path $script:Root '.git')) -and [bool](Get-Command git -ErrorAction SilentlyContinue)
+}
+
+function Test-GitCleanMain {
+  <# Copia git no branch main e sem alteracoes: a atualizacao automatica pode fazer 'git pull' sozinha. #>
+  if (-not (Test-GitCheckout)) { return $false }
+  $branch = git -C $script:Root rev-parse --abbrev-ref HEAD 2>$null
+  $dirty = git -C $script:Root status --porcelain 2>$null
+  ($branch -eq 'main') -and -not $dirty
 }
 
 function Get-InstalledVersion {
@@ -293,4 +362,4 @@ function ConvertTo-HotKey([string]$Text) {
   @{ Modifiers = [uint32]$mods; Key = [uint32]$key }
 }
 
-Export-ModuleMember -Function Get-MonitorConfig, Get-MonitorName, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent, Get-UpdateSetting, Test-GitCheckout, Get-InstalledVersion, Get-LatestRelease, Test-NewerVersion
+Export-ModuleMember -Function Get-MonitorConfig, Get-MonitorName, Write-DdcLog, Get-DdcMonitors, Get-DdcMonitor, Read-Vcp, Write-Vcp, Get-DdcCapabilities, Set-MonitorInput, ConvertTo-HotKey, Test-DevicePresent, Get-UpdateSetting, Test-GitCheckout, Test-GitCleanMain, Get-InstalledVersion, Get-LatestRelease, Test-NewerVersion, Get-PeerSetting, Get-PeerId, New-PeerMessage, ConvertFrom-PeerMessage, Test-MonitorAttached

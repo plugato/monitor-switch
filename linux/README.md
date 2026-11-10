@@ -54,7 +54,8 @@ Permissão: o usuário precisa escrever em `/dev/i2c-*`. O `install.sh` mostra o
 | `monitor-control.sh`    | `MonitorControl.ps1`     | Painel em modo texto com as mesmas seções                    |
 | `monitor-tray.sh`       | `MonitorTray.ps1/.vbs`   | Bandeja via `yad`                                            |
 | `install-hotkeys.sh`    | hotkeys do `MonitorTray` | Registra `config.hotkeys` no GNOME; imprime config para KDE/XFCE/i3/sway/sxhkd |
-| `monitor-kvm.sh`        | "Seguir o KVM" do `MonitorTray` | Observa a sentinela USB via `udevadm monitor` e troca a entrada quando ela sai/volta; `--enable`/`--disable`/`--status` |
+| `monitor-kvm.sh`        | "Seguir o KVM" do `MonitorTray` | `--enable`/`--disable`/`--status`; ao rodar, passa para o `monitor-kvm.py` (sem python3, laço bash sem rede) |
+| `monitor-kvm.py`        | "Seguir o KVM" + outro PC do `MonitorTray` | Observa a sentinela via `udevadm monitor`, troca a entrada e conversa com o outro PC por UDP (ver README principal) |
 | `install.sh`            | —                        | Diagnóstico de ambiente, autostart, hotkeys, serviço do KVM  |
 | `update.sh`             | `Update-Monitor.ps1`     | Atualiza pelas Releases do GitHub (`--check`, `--auto`); a bandeja chama sozinha. Ver README principal |
 
@@ -79,21 +80,28 @@ o teclado atrás do KVM (sentinela `kvm.sentinel`) some deste PC; o `monitor-kvm
   bandeja) valem na hora. Isso edita o `config.json` e precisa de `jq` ou `python3`.
 - O serviço em si é instalado com `./install.sh --kvm` e removido com `--no-kvm` (systemd de usuário,
   `monitor-kvm.service`; sem systemd de usuário, cai numa entrada de autostart).
-- `./monitor-kvm.sh --status` mostra a configuração, se está ligado e se a sentinela está presente agora.
+- `./monitor-kvm.sh --status` mostra a configuração, se está ligado, se a sentinela está presente agora e o que
+  se sabe do outro PC (pronto, último contato, IP).
+- **Conversa com o outro PC** (bloco `peer`, precisa de `python3`): não manda o monitor para o outro PC se ele
+  estiver dormindo, desligado ou sem monitor, e o monitor vai sozinho quando ele voltar. Também percebe a volta
+  da suspensão deste PC e a reconexão do monitor. Regras completas em "Os dois PCs conversam pela rede", no
+  README principal. Com `ufw` ativo: `sudo ufw allow 47321/udp`.
+- `./set-monitor-input.sh X` (atalhos e bandeja) também pede ao outro PC que envie X, então a troca funciona
+  mesmo quando o monitor está exibindo o outro PC.
 - Tempo de reação: o `udev` avisa no instante da mudança; soma-se `delayMs`, a leitura de `/sys` (ms) e o
   envio pelo barramento (ms). O resto é o hardware do KVM (~0,5–1 s) e o firmware do monitor (~1–2 s).
 - Se o `udevadm monitor` não rodar para o usuário (algumas distros restringem), o script faz polling a cada 2 s.
 - No outro PC, inverta `onLeave`/`onArrive`, como no Windows.
 
-Limitação herdada do monitor: se o outro PC estiver desligado, o monitor vai para uma entrada sem sinal
-e dorme; o comando de volta é enviado mas não é ouvido. Use o botão do monitor.
+Limitação herdada do monitor: numa entrada sem sinal ele dorme e não ouve mais nenhum comando. A conversa
+com o outro PC evita mandá-lo para lá; sem ela (`peer.enabled: false` ou sem python3), use o botão do monitor.
 
 ## Diferenças em relação ao Windows
 
 - **Atalhos globais** são do desktop, não da bandeja. Funcionam mesmo sem o `monitor-tray.sh` rodando.
   Se a combinação já estiver em uso, o GNOME simplesmente não dispara; troque em `config.json` e rode
   `./install-hotkeys.sh` de novo.
-- **Bandeja:** clique esquerdo executa `config.doubleClick` (não há duplo clique no `yad`); botão direito abre o
+- **Bandeja:** clique esquerdo executa `config.doubleClick` (no `config.json` do projeto, `linux.doubleClick` = HDMI) (não há duplo clique no `yad`); botão direito abre o
   menu, com os mesmos itens do Windows: uma entrada por linha (com o atalho), controle completo, abrir log,
   seguir o KVM, iniciar com a sessão, sair. O `yad` não tem item com marcador, então "seguir o KVM" e
   "iniciar com a sessão" aparecem como pares ligar/desligar.

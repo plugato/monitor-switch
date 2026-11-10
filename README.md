@@ -102,7 +102,8 @@ String de capabilities reportada:
 |-------------------------|--------------------------------------------------------------------------------|
 | `DdcCi.psm1`            | Módulo compartilhado: P/Invoke em `dxva2.dll`, leitura/escrita VCP, config, log, hotkeys. Tudo passa por aqui. |
 | `config.json`           | Códigos de entrada, teclas de atalho, ação do duplo clique, caminho do log.     |
-| `MonitorTray.ps1` / `.vbs` | Ícone de bandeja. O `.vbs` inicia sem janela de console.                     |
+| `MonitorTray.ps1` / `.vbs` | Ícone de bandeja. O `.vbs` inicia sem janela de console. Segue o KVM e conversa com o outro PC. |
+| `MonitorBeacon.ps1`     | Opcional: avisa o outro PC já na tela de login (tarefa agendada, instalada pelo menu da bandeja). |
 | `MonitorControl.ps1` / `.cmd` | Painel completo com quatro abas.                                        |
 | `Set-MonitorInput.ps1`  | Linha de comando: `-Source HDMI|DP` ou `-Raw <valor>`.                          |
 | `to-dp.cmd` / `to-hdmi.cmd` | Atalhos de um clique (chamam o script acima).                              |
@@ -129,8 +130,8 @@ Liga e desliga pelo menu do ícone ("Seguir o KVM") ou por `kvm.enabled` no `con
 exibindo, então o DDC/CI dele é ouvido na hora. O PC que **recebe** o teclado fala por uma entrada
 inativa, que o monitor às vezes demora ou se recusa a atender — se só um PC seguir o KVM, a troca de
 volta para ele fica lenta ou falha. Com os dois rodando, cada troca é feita por quem sai e confirmada
-por quem chega (mesma entrada, sem conflito). Não há comunicação de rede entre eles: os dois reagem ao
-mesmo teclado.
+por quem chega (mesma entrada, sem conflito). Além de reagirem ao mesmo teclado, os dois conversam pela
+rede local (próxima seção).
 
 O mesmo `config.json` serve aos dois: `kvm.linux` e `kvm.windows` sobrescrevem as chaves do `kvm` em cada
 sistema. Aqui o Windows está no HDMI e o Linux no DP:
@@ -154,9 +155,44 @@ O atraso total é a soma de:
 Se quiser reagir mais rápido, reduza `delayMs`; se perceber troca dupla, aumente. A sentinela pode ser qualquer dispositivo que esteja atrás do KVM;
 descubra o prefixo com `Get-PnpDevice -PresentOnly | ? InstanceId -like 'USB\VID*'`.
 
-Limitação herdada do monitor: se o outro PC estiver desligado, o monitor vai pro DisplayPort sem
-sinal e dorme. Nesse caso, ao apertar o botão do KVM de volta, o comando HDMI é enviado mas o monitor
-não escuta; use o botão do monitor.
+### Os dois PCs conversam pela rede
+
+Limitação do monitor: mandado para uma entrada **sem sinal** (outro PC dormindo, desligado ou fora da dock),
+ele dorme e para de responder DDC/CI pelas duas entradas; só o botão físico o trazia de volta. O Auto Source
+Switch+ não resolve. Por isso a bandeja do Windows e o serviço do Linux trocam mensagens UDP na rede local
+(porta `peer.port`, 47321), com a regra **"o PC que tem o teclado é o dono do monitor"**:
+
+| Situação | O que acontece |
+|----------|----------------|
+| Teclado sai e o outro PC está **pronto** (vivo e com o monitor conectado) | troca para o outro PC, como antes |
+| Teclado sai e o outro PC **não está pronto** | o monitor **fica** neste PC; aviso "outro PC indisponível" |
+| Depois disso o outro PC acorda, liga ou volta para a dock, com o teclado | o monitor vai para ele **sozinho** |
+| Teclado chega | troca aqui **e** pede ao outro PC (que está na tela, e é ouvido) para trocar |
+| Este PC acorda da suspensão, inicia ou tem o monitor reconectado, com o teclado nele | puxa o monitor para si |
+| "Mudar para X" no menu, duplo clique ou atalho | envia aqui **e** pede ao outro PC: funciona de qualquer um dos dois |
+| Nenhum monitor aceitou o comando | tenta de novo após 1,5 / 4 / 8 / 15 s |
+
+- Cada PC manda um `hello` a cada 5 s (broadcast); "pronto" = `hello` há menos de `peer.timeoutSec` (15 s) e
+  monitor conectado (no Windows: monitor externo ativo; no Linux: conector DRM `connected`). Ao suspender ou
+  sair, manda `bye`.
+- **Firewall:** no Windows, menu da bandeja > "Liberar a conversa com o outro PC no firewall (admin)" (regra
+  de entrada UDP 47321, redes privadas). A rede do Windows precisa estar como **Privada**. No Linux, com `ufw`
+  ativo: `sudo ufw allow 47321/udp`.
+- Até o primeiro contato entre os dois, o comportamento antigo vale (troca sem conferir) e o log avisa
+  "sem contato com o outro PC". Assim um firewall bloqueando não faz o KVM parar de trocar.
+- **Notebook desligado:** a bandeja só roda depois do login. Marque no menu "Avisar o outro PC já na tela de
+  login (admin)": uma tarefa agendada (SYSTEM, ao iniciar o Windows) roda o `MonitorBeacon.ps1`, que manda
+  `hello` até a bandeja abrir. Ligou o notebook com o teclado nele, o monitor vai para a tela de login.
+- Estado: menu da bandeja ("Outro PC: pronto / indisponível / nunca visto") ou `linux/monitor-kvm.sh --status`.
+
+```json
+"peer": { "enabled": true, "port": 47321, "host": "", "timeoutSec": 15 }
+```
+
+- `host`: IP ou nome do outro PC, se o broadcast não chegar (redes diferentes, Wi-Fi isolando clientes).
+- `key`: opcional; se definida (igual nos dois), mensagens sem ela são ignoradas. Não ponha no `config.json`
+  versionado de um repositório público.
+- `enabled: false` volta ao comportamento antigo (sem rede).
 
 ## Configuração (`config.json`)
 
@@ -178,6 +214,9 @@ não escuta; use o botão do monitor.
   pra desativar. Se a combinação já estiver em uso por outro programa, o log avisa.
 - `doubleClick`: entrada enviada no duplo clique do ícone. No notebook faz sentido ser a entrada do
   *outro* PC.
+- `windows` / `linux`: blocos que sobrescrevem qualquer chave acima só naquele sistema, para o mesmo
+  `config.json` servir aos dois PCs. Ex.: `"linux": { "doubleClick": "HDMI" }` (no Linux, que está no DP, o
+  clique leva ao notebook). `kvm.windows` / `kvm.linux` continuam valendo.
 
 ## Usar em outro computador
 
@@ -198,8 +237,9 @@ nova, baixa o pacote do sistema, confere o SHA-256 com o `SHA256SUMS.txt` da rel
 ```
 
 - `mode`: `install` (baixa e instala sozinho), `notify` (só avisa), `off`.
-- Numa cópia **git** (pasta de desenvolvimento) a verificação automática só avisa; a manual faz
-  `git pull --ff-only`.
+- Numa cópia **git** (pasta de desenvolvimento) a atualização usa `git pull --ff-only` (sem pedir senha; se o
+  remoto SSH pedir chave, usa o HTTPS público do repositório). A automática só faz isso sozinha no branch `main`
+  com a árvore limpa; com alteração local (inclusive no `config.json`), só avisa.
 
 - **Windows:** copie a pasta, rode `MonitorTray.vbs`, marque "Iniciar com o Windows". Troque
   `doubleClick` pra `HDMI` se aquele PC estiver no DisplayPort.
@@ -223,7 +263,9 @@ nova, baixa o pacote do sistema, confere o SHA-256 com o `SHA256SUMS.txt` da rel
 | Sintoma | Causa provável | O que fazer |
 |---------|----------------|-------------|
 | "ok" mas não troca | valor errado pro seu monitor | ver "Adaptar para outro monitor" |
-| Tela preta após trocar | entrada de destino sem sinal | ligar o outro PC; voltar pelo botão do monitor |
+| Tela preta após trocar | entrada de destino sem sinal | com os dois PCs conversando não acontece pelo KVM; ver "Os dois PCs conversam pela rede" |
+| Teclado foi pro outro PC e o monitor ficou | outro PC indisponível (dormindo, desligado, fora da dock) | é o esperado: acorde o outro PC e o monitor vai sozinho |
+| Bandeja diz "Outro PC: nunca visto" | firewall, rede Pública no Windows, ou serviço parado no outro PC | menu > "Liberar ... no firewall"; rede Privada; `linux/monitor-kvm.sh --status`; `peer.host` |
 | Nada responde, nem brilho | DDC/CI desligado no menu do monitor, ou monitor em outra entrada | menu Sistema → DDC/CI ligado |
 | Atalho global não funciona | ícone da bandeja não está rodando, ou combinação em uso | abrir `MonitorTray.vbs`; ver `logs\monitor.log` |
 | Ícone não aparece | Windows 11 esconde ícones novos | clicar na seta `^` da bandeja e arrastar o ícone pra fora |
@@ -240,3 +282,5 @@ nova, baixa o pacote do sistema, confere o SHA-256 com o `SHA256SUMS.txt` da rel
 - 2026-09-21: valores `0x06`/`0x09` descobertos por varredura; primeira versão dos scripts, painel
   completo, ícone de bandeja, módulo compartilhado, `config.json`, atalhos globais e este README.
 - 2026-09-21: versão Linux (`linux/`) em Bash sobre o `ddcutil`, reaproveitando o `config.json`.
+- 2026-11-10: os dois PCs conversam pela rede (não manda o monitor para um PC indisponível; reconecta sozinho),
+  retentativas, overrides `windows`/`linux` e atualização automática na cópia git.
